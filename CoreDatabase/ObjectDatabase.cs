@@ -24,7 +24,7 @@ namespace DOL.Database
 		/// <summary>
 		/// Number Format Info to Use for Database
 		/// </summary>
-		protected static readonly NumberFormatInfo Nfi = new CultureInfo("en-US", false).NumberFormat;
+                protected static readonly NumberFormatInfo Nfi = CultureInfo.InvariantCulture.NumberFormat;
 
 		private static readonly ConcurrentDictionary<Type, Func<IEnumerable<object>, Array>> _castToArrayCache = new();
 
