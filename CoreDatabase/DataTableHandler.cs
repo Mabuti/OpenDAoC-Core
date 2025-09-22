@@ -79,7 +79,8 @@ namespace DOL.Database
 				_precache = new ConcurrentDictionary<object, DataObject>();
 			
                         // Parse Table Type
-                        var elementBindings = ObjectType.GetMembers()
+                        var elementBindings = ObjectType
+                                .GetMembers(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                                 .Select(member => new ElementBinding(member))
                                 .Where(bind => bind.IsDataElementBinding)
                                 .ToList();
@@ -92,41 +93,53 @@ namespace DOL.Database
                                                 nameof(DataObject.ObjectId),
                                                 BindingFlags.Instance |
                                                 BindingFlags.Public |
-                                                BindingFlags.NonPublic)
+                                                BindingFlags.NonPublic |
+                                                BindingFlags.FlattenHierarchy)
                                         ?? typeof(DataObject).GetProperty(
                                                 nameof(DataObject.ObjectId),
                                                 BindingFlags.Instance |
                                                 BindingFlags.Public |
-                                                BindingFlags.NonPublic)
+                                                BindingFlags.NonPublic |
+                                                BindingFlags.FlattenHierarchy)
                                         ?? (MemberInfo)ObjectType.GetField(
                                                 nameof(DataObject.ObjectId),
                                                 BindingFlags.Instance |
                                                 BindingFlags.Public |
-                                                BindingFlags.NonPublic)
+                                                BindingFlags.NonPublic |
+                                                BindingFlags.FlattenHierarchy)
                                         ?? typeof(DataObject).GetField(
                                                 nameof(DataObject.ObjectId),
                                                 BindingFlags.Instance |
                                                 BindingFlags.Public |
-                                                BindingFlags.NonPublic);
+                                                BindingFlags.NonPublic |
+                                                BindingFlags.FlattenHierarchy);
 
                                 if (objectIdMember != null)
                                 {
                                         var fieldElementBindings = elementBindings
                                                 .Where(bind => bind.Relation == null)
                                                 .ToList();
+                                        var objectIdColumnName = string.Format("{0}_ID", TableName);
+                                        var objectIdAlreadyBound = fieldElementBindings.Any(bind =>
+                                                bind != null &&
+                                                (string.Equals(bind.ColumnName, objectIdColumnName, StringComparison.OrdinalIgnoreCase) ||
+                                                 string.Equals(bind.ColumnName, objectIdMember.Name, StringComparison.OrdinalIgnoreCase)));
 
-                                        // If no Primary Key AutoIncrement add GUID
-                                        if (fieldElementBindings.Any(bind => bind.PrimaryKey != null && !bind.PrimaryKey.AutoIncrement))
+                                        if (!objectIdAlreadyBound)
                                         {
-                                                elementBindings.Add(new ElementBinding(objectIdMember,
-                                                        new DataElement { Unique = true },
-                                                        string.Format("{0}_ID", TableName)));
-                                        }
-                                        else if (fieldElementBindings.All(bind => bind.PrimaryKey == null))
-                                        {
-                                                elementBindings.Add(new ElementBinding(objectIdMember,
-                                                        new PrimaryKey(),
-                                                        string.Format("{0}_ID", TableName)));
+                                                // If no Primary Key AutoIncrement add GUID
+                                                if (fieldElementBindings.Any(bind => bind.PrimaryKey != null && !bind.PrimaryKey.AutoIncrement))
+                                                {
+                                                        elementBindings.Add(new ElementBinding(objectIdMember,
+                                                                new DataElement { Unique = true },
+                                                                objectIdColumnName));
+                                                }
+                                                else if (fieldElementBindings.All(bind => bind.PrimaryKey == null))
+                                                {
+                                                        elementBindings.Add(new ElementBinding(objectIdMember,
+                                                                new PrimaryKey(),
+                                                                objectIdColumnName));
+                                                }
                                         }
                                 }
                         }
