@@ -485,3 +485,6 @@ $RECYCLE.BIN/
 
 # OpenDAoC
 /Pathing/Detour/Build
+
+# Local dotnet installation directory
+.dotnet/

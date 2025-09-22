@@ -15,6 +15,29 @@ The easiest way to get started with OpenDAoC is to use Docker. Check out the `do
 
 For detailed instructions and additional setup options, refer to the full [OpenDAoC Documentation](https://www.opendaoc.com/docs/).
 
+## Installing the .NET SDK locally
+
+Some workflows—such as running tests with `dotnet test`—require the .NET CLI to be available on your machine. The repository includes a helper script that downloads the required SDK without needing global installation rights. Run the following from the repository root:
+
+```bash
+./scripts/install-dotnet.sh
+```
+
+By default the script installs the latest .NET 9 SDK into `.dotnet/` inside the repository. To target a specific version, pass it as the first argument, for example:
+
+```bash
+./scripts/install-dotnet.sh 9.0.100
+```
+
+After the installation completes, add the SDK to your shell `PATH`:
+
+```bash
+export DOTNET_ROOT="$(pwd)/.dotnet"
+export PATH="$DOTNET_ROOT:$PATH"
+```
+
+You can confirm that the CLI is available with `dotnet --info`.
+
 ## Releases
 
 Releases for OpenDAoC are available at [OpenDAoC Releases](https://github.com/OpenDAoC/OpenDAoC-Core/releases).
