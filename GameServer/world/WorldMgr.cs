@@ -702,43 +702,30 @@ namespace DOL.GS
 			return null;
 		}
 
-		public static object[] OfTypeAndToArray<T>(this IEnumerable<T> input, Type type)
-		{
-			MethodInfo methodOfType = typeof(Enumerable).GetMethod("OfType");
-			MethodInfo genericOfType = methodOfType.MakeGenericMethod(new Type[]{ type });
-			// Use .NET 4 covariance
-			var result = (IEnumerable<object>) genericOfType.Invoke(null, new object[] { input });
-			
-			MethodInfo methodToArray = typeof(Enumerable).GetMethod("ToArray");
-			MethodInfo genericToArray = methodToArray.MakeGenericMethod(new Type[]{ type });
-			
-			return (object[]) genericToArray.Invoke(null, new object[] { result });
-		}
+                /// <summary>
+                /// Searches for all objects from a specific region
+                /// </summary>
+                /// <param name="regionID">The region to search</param>
+                /// <param name="objectType">The type of the object you search</param>
+                /// <returns>All objects with the specified parameters</returns>
+                public static GameObject[] GetobjectsFromRegion(ushort regionID, Type objectType)
+                {
+                        Region reg;
+                        if (!m_regions.TryGetValue(regionID, out reg))
+                                return new GameObject[0];
 
-		/// <summary>
-		/// Searches for all objects from a specific region
-		/// </summary>
-		/// <param name="regionID">The region to search</param>
-		/// <param name="objectType">The type of the object you search</param>
-		/// <returns>All objects with the specified parameters</returns>
-		public static GameObject[] GetobjectsFromRegion(ushort regionID, Type objectType)
-		{
-			Region reg;
-			if (!m_regions.TryGetValue(regionID, out reg))
-				return new GameObject[0];
-
-			return (GameObject[]) reg.Objects.Where(obj => obj != null).OfTypeAndToArray(objectType);
-		}
+                        return reg.Objects.Where(obj => obj != null && objectType.IsInstanceOfType(obj)).ToArray();
+                }
 		
 		/// <summary>
 		/// Searches for all GameStaticItem from a specific region
 		/// </summary>
 		/// <param name="regionID">The region to search</param>
 		/// <returns>All NPCs with the specified parameters</returns>
-		public static GameStaticItem[] GetStaticItemFromRegion(ushort regionID)
-		{
-			return (GameStaticItem[])GetobjectsFromRegion(regionID, typeof(GameStaticItem));
-		}
+                public static GameStaticItem[] GetStaticItemFromRegion(ushort regionID)
+                {
+                        return GetobjectsFromRegion(regionID, typeof(GameStaticItem)).Cast<GameStaticItem>().ToArray();
+                }
 
 		/// <summary>
 		/// Searches for all objects with the given name, from a specific region and realm
@@ -754,8 +741,10 @@ namespace DOL.GS
 			if (!m_regions.TryGetValue(regionID, out reg))
 				return new GameObject[0];
 			
-			return (GameObject[]) reg.Objects.Where(obj => obj != null && obj.Realm == realm && obj.Name == name).OfTypeAndToArray(objectType);
-		}
+                        return reg.Objects
+                                .Where(obj => obj != null && obj.Realm == realm && obj.Name == name && objectType.IsInstanceOfType(obj))
+                                .ToArray();
+                }
 
 		/// <summary>
 		/// Returns the npcs in a given region
@@ -777,11 +766,12 @@ namespace DOL.GS
 		/// <param name="realm">The realm of the object we search!</param>
 		/// <param name="objectType">The type of the object you search</param>
 		/// <returns>All objects with the specified parameters</returns>b
-		public static GameObject[] GetObjectsByName(string name, eRealm realm, Type objectType)
-		{
-			return (GameObject[]) m_regions.Values.Select(reg => GetObjectsByNameFromRegion(name, reg.ID, realm, objectType))
-				.SelectMany(objs => objs).OfTypeAndToArray(objectType);
-		}
+                public static GameObject[] GetObjectsByName(string name, eRealm realm, Type objectType)
+                {
+                        return m_regions.Values
+                                .SelectMany(reg => GetObjectsByNameFromRegion(name, reg.ID, realm, objectType))
+                                .ToArray();
+                }
 
 		/// <summary>
 		/// Searches for all NPCs with the given name, from a specific region and realm
@@ -790,10 +780,10 @@ namespace DOL.GS
 		/// <param name="regionID">The region to search</param>
 		/// <param name="realm">The realm of the object we search!</param>
 		/// <returns>All NPCs with the specified parameters</returns>
-		public static GameNPC[] GetNPCsByNameFromRegion(string name, ushort regionID, eRealm realm)
-		{
-			return (GameNPC[])GetObjectsByNameFromRegion(name, regionID, realm, typeof(GameNPC));
-		}
+                public static GameNPC[] GetNPCsByNameFromRegion(string name, ushort regionID, eRealm realm)
+                {
+                        return GetObjectsByNameFromRegion(name, regionID, realm, typeof(GameNPC)).Cast<GameNPC>().ToArray();
+                }
 
 		/// <summary>
 		/// Searches for all NPCs with the given name and realm in ALL regions!
@@ -801,10 +791,10 @@ namespace DOL.GS
 		/// <param name="name">The name of the object to search</param>
 		/// <param name="realm">The realm of the object we search!</param>
 		/// <returns>All NPCs with the specified parameters</returns>b
-		public static GameNPC[] GetNPCsByName(string name, eRealm realm)
-		{
-			return (GameNPC[])GetObjectsByName(name, realm, typeof(GameNPC));
-		}
+                public static GameNPC[] GetNPCsByName(string name, eRealm realm)
+                {
+                        return GetObjectsByName(name, realm, typeof(GameNPC)).Cast<GameNPC>().ToArray();
+                }
 
 		/// <summary>
 		/// Searches for all NPCs with the given guild and realm in ALL regions!

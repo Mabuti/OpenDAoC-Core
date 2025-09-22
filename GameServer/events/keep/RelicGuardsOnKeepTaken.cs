@@ -90,16 +90,21 @@ namespace DOL.GS.GameEvents
                     TranslationId = translationId
                 };
 
-                foreach (IArea area in guard.CurrentAreas)
-                {
-                    if (area is not KeepArea keepArea)
-                        continue;
+                Zone zone = guard.CurrentRegion?.GetZone(guard.X, guard.Y);
 
-                    guard.Component = new()
+                if (zone != null)
+                {
+                    foreach (IArea area in zone.GetAreasOfSpot(guard.X, guard.Y, guard.Z))
                     {
-                        Keep = keepArea.Keep
-                    };
-                    break;
+                        if (area is not KeepArea keepArea)
+                            continue;
+
+                        guard.Component = new()
+                        {
+                            Keep = keepArea.Keep
+                        };
+                        break;
+                    }
                 }
 
                 GuardTemplateMgr.RefreshTemplate(guard);
