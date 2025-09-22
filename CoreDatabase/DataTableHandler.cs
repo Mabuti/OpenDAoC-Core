@@ -78,73 +78,54 @@ namespace DOL.Database
 			if (UsesPreCaching)
 				_precache = new ConcurrentDictionary<object, DataObject>();
 			
-                        // Parse Table Type
-                        var elementBindings = ObjectType
-                                .GetMembers(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                                .Select(member => new ElementBinding(member))
-                                .Where(bind => bind.IsDataElementBinding)
-                                .ToList();
+                       // Parse Table Type
+                       var elementBindings = ObjectType
+                               .GetMembers(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                               .Select(member => new ElementBinding(member))
+                               .Where(bind => bind.IsDataElementBinding)
+                               .ToList();
 
-                        // Views Can't Handle Auto GUID Key
-                        if (!isView)
-                        {
-                                var objectIdMember =
-                                        (MemberInfo)ObjectType.GetProperty(
-                                                nameof(DataObject.ObjectId),
-                                                BindingFlags.Instance |
-                                                BindingFlags.Public |
-                                                BindingFlags.NonPublic |
-                                                BindingFlags.FlattenHierarchy)
-                                        ?? typeof(DataObject).GetProperty(
-                                                nameof(DataObject.ObjectId),
-                                                BindingFlags.Instance |
-                                                BindingFlags.Public |
-                                                BindingFlags.NonPublic |
-                                                BindingFlags.FlattenHierarchy)
-                                        ?? (MemberInfo)ObjectType.GetField(
-                                                nameof(DataObject.ObjectId),
-                                                BindingFlags.Instance |
-                                                BindingFlags.Public |
-                                                BindingFlags.NonPublic |
-                                                BindingFlags.FlattenHierarchy)
-                                        ?? typeof(DataObject).GetField(
-                                                nameof(DataObject.ObjectId),
-                                                BindingFlags.Instance |
-                                                BindingFlags.Public |
-                                                BindingFlags.NonPublic |
-                                                BindingFlags.FlattenHierarchy);
+                       ElementBindings = elementBindings.ToArray();
 
-                                if (objectIdMember != null)
-                                {
-                                        var fieldElementBindings = elementBindings
-                                                .Where(bind => bind.Relation == null)
-                                                .ToList();
-                                        var objectIdColumnName = string.Format("{0}_ID", TableName);
-                                        var objectIdAlreadyBound = fieldElementBindings.Any(bind =>
-                                                bind != null &&
-                                                (string.Equals(bind.ColumnName, objectIdColumnName, StringComparison.OrdinalIgnoreCase) ||
-                                                 string.Equals(bind.ColumnName, objectIdMember.Name, StringComparison.OrdinalIgnoreCase)));
+                       // Views Can't Handle Auto GUID Key
+                       if (!isView)
+                       {
+                               var objectIdMember = FindObjectIdMember(ObjectType);
+                               if (objectIdMember != null)
+                               {
+                                       var fieldElementBindings = FieldElementBindings.ToList();
+                                       var objectIdColumnName = string.Format("{0}_ID", TableName);
+                                       var objectIdAlreadyBound = fieldElementBindings.Any(bind =>
+                                               bind != null &&
+                                               (string.Equals(bind.ColumnName, objectIdColumnName, StringComparison.OrdinalIgnoreCase) ||
+                                                string.Equals(bind.ColumnName, objectIdMember.Name, StringComparison.OrdinalIgnoreCase)));
 
-                                        if (!objectIdAlreadyBound)
-                                        {
-                                                // If no Primary Key AutoIncrement add GUID
-                                                if (fieldElementBindings.Any(bind => bind.PrimaryKey != null && !bind.PrimaryKey.AutoIncrement))
-                                                {
-                                                        elementBindings.Add(new ElementBinding(objectIdMember,
-                                                                new DataElement { Unique = true },
-                                                                objectIdColumnName));
-                                                }
-                                                else if (fieldElementBindings.All(bind => bind.PrimaryKey == null))
-                                                {
-                                                        elementBindings.Add(new ElementBinding(objectIdMember,
-                                                                new PrimaryKey(),
-                                                                objectIdColumnName));
-                                                }
-                                        }
-                                }
-                        }
+                                       if (!objectIdAlreadyBound)
+                                       {
+                                               ElementBinding implicitBinding = null;
 
-                        ElementBindings = elementBindings.ToArray();
+                                               // If no Primary Key AutoIncrement add GUID
+                                               if (fieldElementBindings.Any(bind => bind.PrimaryKey != null && !bind.PrimaryKey.AutoIncrement))
+                                               {
+                                                       implicitBinding = new ElementBinding(objectIdMember,
+                                                               new DataElement { Unique = true },
+                                                               objectIdColumnName);
+                                               }
+                                               else if (fieldElementBindings.All(bind => bind.PrimaryKey == null))
+                                               {
+                                                       implicitBinding = new ElementBinding(objectIdMember,
+                                                               new PrimaryKey(),
+                                                               objectIdColumnName);
+                                               }
+
+                                               if (implicitBinding != null)
+                                               {
+                                                       elementBindings.Add(implicitBinding);
+                                                       ElementBindings = elementBindings.ToArray();
+                                               }
+                                       }
+                               }
+                       }
 			
 			// Prepare Table
 			Table = new DataTable(TableName);
@@ -210,9 +191,37 @@ namespace DOL.Database
 				Table.Constraints.Add(new UniqueConstraint(string.Format("U_{0}_{1}", TableName, bind.ColumnName),
 				                                           columns.Select(column => Table.Columns[column]).ToArray()));
 			}
-		}
-		
-		#region PreCache Handling
+               }
+
+               private static MemberInfo FindObjectIdMember(Type type)
+               {
+                       return (MemberInfo)type.GetProperty(
+                               nameof(DataObject.ObjectId),
+                               BindingFlags.Instance |
+                               BindingFlags.Public |
+                               BindingFlags.NonPublic |
+                               BindingFlags.FlattenHierarchy)
+                               ?? typeof(DataObject).GetProperty(
+                                       nameof(DataObject.ObjectId),
+                                       BindingFlags.Instance |
+                                       BindingFlags.Public |
+                                       BindingFlags.NonPublic |
+                                       BindingFlags.FlattenHierarchy)
+                               ?? (MemberInfo)type.GetField(
+                                       nameof(DataObject.ObjectId),
+                                       BindingFlags.Instance |
+                                       BindingFlags.Public |
+                                       BindingFlags.NonPublic |
+                                       BindingFlags.FlattenHierarchy)
+                               ?? typeof(DataObject).GetField(
+                                       nameof(DataObject.ObjectId),
+                                       BindingFlags.Instance |
+                                       BindingFlags.Public |
+                                       BindingFlags.NonPublic |
+                                       BindingFlags.FlattenHierarchy);
+               }
+
+               #region PreCache Handling
 		/// <summary>
 		/// Set Pre-Cached Object
 		/// </summary>
