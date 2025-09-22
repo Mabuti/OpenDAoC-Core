@@ -85,15 +85,15 @@ namespace DOL.Database
                                .Where(bind => bind.IsDataElementBinding)
                                .ToList();
 
-                       ElementBindings = elementBindings.ToArray();
-
                        // Views Can't Handle Auto GUID Key
                        if (!isView)
                        {
                                var objectIdMember = FindObjectIdMember(ObjectType);
                                if (objectIdMember != null)
                                {
-                                       var fieldElementBindings = FieldElementBindings.ToList();
+                                       var fieldElementBindings = elementBindings
+                                               .Where(bind => bind.Relation == null)
+                                               .ToList();
                                        var objectIdColumnName = string.Format("{0}_ID", TableName);
                                        var objectIdAlreadyBound = fieldElementBindings.Any(bind =>
                                                bind != null &&
@@ -121,12 +121,13 @@ namespace DOL.Database
                                                if (implicitBinding != null)
                                                {
                                                        elementBindings.Add(implicitBinding);
-                                                       ElementBindings = elementBindings.ToArray();
                                                }
                                        }
                                }
                        }
 			
+                       ElementBindings = elementBindings.ToArray();
+
 			// Prepare Table
 			Table = new DataTable(TableName);
 			var multipleUnique = new List<ElementBinding>();
