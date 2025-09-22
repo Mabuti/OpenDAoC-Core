@@ -80,23 +80,31 @@ namespace DOL.Database
 			// Parse Table Type
 			ElementBindings = ObjectType.GetMembers().Select(member => new ElementBinding(member)).Where(bind => bind.IsDataElementBinding).ToArray();
 			
-			// Views Can't Handle Auto GUID Key
-			if (!isView)
-			{
-				// If no Primary Key AutoIncrement add GUID
-				if (FieldElementBindings.Any(bind => bind.PrimaryKey != null && !bind.PrimaryKey.AutoIncrement))
-					ElementBindings = ElementBindings.Concat(new [] {
-					                                         	new ElementBinding(ObjectType.GetProperty("ObjectId"),
-					                                         	                   new DataElement(){ Unique = true },
-					                                         	                   string.Format("{0}_ID", TableName))
-					                                         }).ToArray();
-				else if (FieldElementBindings.All(bind => bind.PrimaryKey == null))
-					ElementBindings = ElementBindings.Concat(new [] {
-					                                         	new ElementBinding(ObjectType.GetProperty("ObjectId"),
-					                                         	                   new PrimaryKey(),
-					                                         	                   string.Format("{0}_ID", TableName))
-					                                         }).ToArray();
-			}
+                        // Views Can't Handle Auto GUID Key
+                        if (!isView)
+                        {
+                                var objectIdMember = ObjectType.GetProperty(nameof(DataObject.ObjectId)) ?? typeof(DataObject).GetProperty(nameof(DataObject.ObjectId));
+
+                                // If no Primary Key AutoIncrement add GUID
+                                if (FieldElementBindings.Any(bind => bind.PrimaryKey != null && !bind.PrimaryKey.AutoIncrement))
+                                {
+                                        if (objectIdMember != null)
+                                                ElementBindings = ElementBindings.Concat(new [] {
+                                                                                        new ElementBinding(objectIdMember,
+                                                                                                           new DataElement(){ Unique = true },
+                                                                                                           string.Format("{0}_ID", TableName))
+                                                                                }).ToArray();
+                                }
+                                else if (FieldElementBindings.All(bind => bind.PrimaryKey == null))
+                                {
+                                        if (objectIdMember != null)
+                                                ElementBindings = ElementBindings.Concat(new [] {
+                                                                                        new ElementBinding(objectIdMember,
+                                                                                                           new PrimaryKey(),
+                                                                                                           string.Format("{0}_ID", TableName))
+                                                                                }).ToArray();
+                                }
+                        }
 			
 			// Prepare Table
 			Table = new DataTable(TableName);
