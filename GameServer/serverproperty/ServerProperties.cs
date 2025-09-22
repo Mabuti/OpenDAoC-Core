@@ -2584,12 +2584,11 @@ namespace DOL.GS.ServerProperties
 								serverProp.Category = att.Category;
 								serverProp.Key = att.Key;
 								serverProp.Description = att.Description;
-								if (att.DefaultValue is double)
-								{
-									CultureInfo myCIintl = new CultureInfo("en-US", false);
-									IFormatProvider provider = myCIintl.NumberFormat;
-									serverProp.DefaultValue = ((double)att.DefaultValue).ToString(provider);
-								}
+                                                                if (att.DefaultValue is double)
+                                                                {
+                                                                        IFormatProvider provider = CultureInfo.InvariantCulture.NumberFormat;
+                                                                        serverProp.DefaultValue = ((double)att.DefaultValue).ToString(provider);
+                                                                }
 								else
 								{
 									serverProp.DefaultValue = att.DefaultValue.ToString();
@@ -2635,8 +2634,7 @@ namespace DOL.GS.ServerProperties
 					log.WarnFormat("Property {0} is ReadOnly, Value won't be changed - {1} !", key, field.GetValue(null));
 				
 				//we do this because we need "1.0" to be considered double sometimes its "1,0" in other countries
-				CultureInfo myCIintl = new CultureInfo("en-US", false);
-				IFormatProvider provider = myCIintl.NumberFormat;
+                                IFormatProvider provider = CultureInfo.InvariantCulture.NumberFormat;
 				field.SetValue(null, Convert.ChangeType(prop.Value, attrib.DefaultValue.GetType(), provider));
 			}
 			catch (Exception e)
