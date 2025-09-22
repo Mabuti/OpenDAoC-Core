@@ -87,20 +87,27 @@ namespace DOL.Database
                         // Views Can't Handle Auto GUID Key
                         if (!isView)
                         {
-                                var objectIdMember = ObjectType.GetMember(
-                                                                nameof(DataObject.ObjectId),
-                                                                BindingFlags.Instance |
-                                                                BindingFlags.Public |
-                                                                BindingFlags.NonPublic |
-                                                                BindingFlags.FlattenHierarchy)
-                                                        .FirstOrDefault(member => member.MemberType == MemberTypes.Property || member.MemberType == MemberTypes.Field)
-                                                    ?? typeof(DataObject)
-                                                                .GetMember(
-                                                                        nameof(DataObject.ObjectId),
-                                                                        BindingFlags.Instance |
-                                                                        BindingFlags.Public |
-                                                                        BindingFlags.NonPublic)
-                                                                .FirstOrDefault(member => member.MemberType == MemberTypes.Property || member.MemberType == MemberTypes.Field);
+                                var objectIdMember =
+                                        (MemberInfo)ObjectType.GetProperty(
+                                                nameof(DataObject.ObjectId),
+                                                BindingFlags.Instance |
+                                                BindingFlags.Public |
+                                                BindingFlags.NonPublic)
+                                        ?? typeof(DataObject).GetProperty(
+                                                nameof(DataObject.ObjectId),
+                                                BindingFlags.Instance |
+                                                BindingFlags.Public |
+                                                BindingFlags.NonPublic)
+                                        ?? (MemberInfo)ObjectType.GetField(
+                                                nameof(DataObject.ObjectId),
+                                                BindingFlags.Instance |
+                                                BindingFlags.Public |
+                                                BindingFlags.NonPublic)
+                                        ?? typeof(DataObject).GetField(
+                                                nameof(DataObject.ObjectId),
+                                                BindingFlags.Instance |
+                                                BindingFlags.Public |
+                                                BindingFlags.NonPublic);
 
                                 if (objectIdMember != null)
                                 {
