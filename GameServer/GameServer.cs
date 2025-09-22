@@ -1163,12 +1163,20 @@ namespace DOL.GS
 		/// <returns>True if the database was successfully initialized</returns>
 		public bool InitDB()
 		{
-			if (m_database == null)
-			{
-				m_database = ObjectDatabase.GetObjectDatabase(Configuration.DBType, Configuration.DBConnectionString);
+                        if (m_database == null)
+                        {
+                                m_database = ObjectDatabase.GetObjectDatabase(Configuration.DBType, Configuration.DBConnectionString);
 
-				try
-				{
+                                if (m_database == null)
+                                {
+                                        if (log.IsFatalEnabled)
+                                                log.FatalFormat("Unsupported database type '{0}'. Check your server configuration (config/serverconfig.xml).", Configuration.DBType);
+
+                                        return false;
+                                }
+
+                                try
+                                {
 					//We will search our assemblies for DataTables by reflection so
 					//it is not neccessary anymore to register new tables with the
 					//server, it is done automatically!
