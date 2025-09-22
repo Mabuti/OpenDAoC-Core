@@ -186,29 +186,43 @@ namespace DOL.GS
             m_gmActionsLoggerName = root["Server"]["GMActionLoggerName"].GetString(m_gmActionsLoggerName);
             m_invalidNamesFile = root["Server"]["InvalidNamesFile"].GetString(m_invalidNamesFile);
 
-            string db = root["Server"]["DBType"].GetString("XML");
-            switch (db.ToLower())
+            string db = root["Server"]["DBType"].GetString(string.Empty);
+
+            if (string.IsNullOrWhiteSpace(db))
+            {
+                db = "sqlite";
+            }
+
+            db = db.Trim().ToLowerInvariant();
+
+            switch (db)
             {
                 case "xml":
+                case "database_xml":
                     m_dbType = EConnectionType.DATABASE_XML;
                     break;
                 case "mysql":
+                case "database_mysql":
                     m_dbType = EConnectionType.DATABASE_MYSQL;
                     break;
                 case "sqlite":
+                case "database_sqlite":
                     m_dbType = EConnectionType.DATABASE_SQLITE;
                     break;
                 case "mssql":
+                case "database_mssql":
                     m_dbType = EConnectionType.DATABASE_MSSQL;
                     break;
                 case "odbc":
+                case "database_odbc":
                     m_dbType = EConnectionType.DATABASE_ODBC;
                     break;
                 case "oledb":
+                case "database_oledb":
                     m_dbType = EConnectionType.DATABASE_OLEDB;
                     break;
                 default:
-                    m_dbType = EConnectionType.DATABASE_XML;
+                    m_dbType = EConnectionType.DATABASE_SQLITE;
                     break;
             }
 
