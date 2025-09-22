@@ -651,45 +651,38 @@ namespace DOL.GS.Scripts
         private static void ClearPvEZones()
         {
             // Clear PvE Zones
-            albDBZone = DOLDB<DbZone>.SelectObject(DB.Column("ZoneID").IsEqualTo(currentAlbionZone));
-            albDBZoneSI = DOLDB<DbZone>.SelectObject(DB.Column("ZoneID").IsEqualTo(currentAlbionZoneSI));
-            midDBZone = DOLDB<DbZone>.SelectObject(DB.Column("ZoneID").IsEqualTo(currentMidgardZone));
-            midDBZoneSI = DOLDB<DbZone>.SelectObject(DB.Column("ZoneID").IsEqualTo(currentMidgardZoneSI));
-            hibDBZone = DOLDB<DbZone>.SelectObject(DB.Column("ZoneID").IsEqualTo(currentHiberniaZone));
-            hibDBZoneSI = DOLDB<DbZone>.SelectObject(DB.Column("ZoneID").IsEqualTo(currentHiberniaZoneSI));
+            albDBZone = GetZoneById(currentAlbionZone);
+            albDBZoneSI = GetZoneById(currentAlbionZoneSI);
+            midDBZone = GetZoneById(currentMidgardZone);
+            midDBZoneSI = GetZoneById(currentMidgardZoneSI);
+            hibDBZone = GetZoneById(currentHiberniaZone);
+            hibDBZoneSI = GetZoneById(currentHiberniaZoneSI);
 
-            albDBZone.Experience = 0;
-            albDBZoneSI.Experience = 0;
-            midDBZone.Experience = 0;
-            midDBZoneSI.Experience = 0;
-            hibDBZone.Experience = 0;
-            hibDBZoneSI.Experience = 0;
+            ResetZoneExperience(albDBZone);
+            ResetZoneExperience(albDBZoneSI);
+            ResetZoneExperience(midDBZone);
+            ResetZoneExperience(midDBZoneSI);
+            ResetZoneExperience(hibDBZone);
+            ResetZoneExperience(hibDBZoneSI);
 
-            GameServer.Database.SaveObject(albDBZone);
-            GameServer.Database.SaveObject(albDBZoneSI);
-            GameServer.Database.SaveObject(midDBZone);
-            GameServer.Database.SaveObject(midDBZoneSI);
-            GameServer.Database.SaveObject(hibDBZone);
-            GameServer.Database.SaveObject(midDBZoneSI);
 
-            
             foreach (var zone in albionClassicZones)
-                WorldMgr.Zones[(ushort)zone].BonusExperience = 0;
+                ResetWorldZoneBonus(zone);
 
             foreach (var zone in albionSIZones)
-                WorldMgr.Zones[(ushort)zone].BonusExperience = 0;
+                ResetWorldZoneBonus(zone);
 
             foreach (var zone in midgardClassicZones)
-                WorldMgr.Zones[(ushort)zone].BonusExperience = 0;
+                ResetWorldZoneBonus(zone);
 
             foreach (var zone in midgardSIZones)
-                WorldMgr.Zones[(ushort)zone].BonusExperience = 0;
+                ResetWorldZoneBonus(zone);
 
             foreach (var zone in hiberniaClassicZones)
-                WorldMgr.Zones[(ushort)zone].BonusExperience = 0;
+                ResetWorldZoneBonus(zone);
 
             foreach (var zone in hiberniaSIZones)
-                WorldMgr.Zones[(ushort)zone].BonusExperience = 0;
+                ResetWorldZoneBonus(zone);
 
             /*
             WorldMgr.Zones[(ushort)albionClassicZones[currentAlbionZone]].BonusExperience = 0;
@@ -699,6 +692,32 @@ namespace DOL.GS.Scripts
             WorldMgr.Zones[(ushort)hiberniaClassicZones[currentHiberniaZone]].BonusExperience = 0;
             WorldMgr.Zones[(ushort)hiberniaSIZones[currentHiberniaZoneSI]].BonusExperience = 0;
             */
+
+            static DbZone GetZoneById(int zoneId)
+            {
+                if (zoneId <= 0)
+                    return null;
+
+                return DOLDB<DbZone>.SelectObject(DB.Column("ZoneID").IsEqualTo(zoneId));
+            }
+
+            static void ResetZoneExperience(DbZone zone)
+            {
+                if (zone == null)
+                    return;
+
+                zone.Experience = 0;
+                GameServer.Database.SaveObject(zone);
+            }
+
+            static void ResetWorldZoneBonus(int zoneId)
+            {
+                if (zoneId <= 0)
+                    return;
+
+                if (WorldMgr.Zones.TryGetValue((ushort)zoneId, out Zone worldZone))
+                    worldZone.BonusExperience = 0;
+            }
         }
     }
 }
