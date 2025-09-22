@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Data;
 using DataTable = System.Data.DataTable;
 using DOL.Database.Attributes;
@@ -77,26 +78,53 @@ namespace DOL.Database
 			if (UsesPreCaching)
 				_precache = new ConcurrentDictionary<object, DataObject>();
 			
-			// Parse Table Type
-			ElementBindings = ObjectType.GetMembers().Select(member => new ElementBinding(member)).Where(bind => bind.IsDataElementBinding).ToArray();
-			
-			// Views Can't Handle Auto GUID Key
-			if (!isView)
-			{
-				// If no Primary Key AutoIncrement add GUID
-				if (FieldElementBindings.Any(bind => bind.PrimaryKey != null && !bind.PrimaryKey.AutoIncrement))
-					ElementBindings = ElementBindings.Concat(new [] {
-					                                         	new ElementBinding(ObjectType.GetProperty("ObjectId"),
-					                                         	                   new DataElement(){ Unique = true },
-					                                         	                   string.Format("{0}_ID", TableName))
-					                                         }).ToArray();
-				else if (FieldElementBindings.All(bind => bind.PrimaryKey == null))
-					ElementBindings = ElementBindings.Concat(new [] {
-					                                         	new ElementBinding(ObjectType.GetProperty("ObjectId"),
-					                                         	                   new PrimaryKey(),
-					                                         	                   string.Format("{0}_ID", TableName))
-					                                         }).ToArray();
-			}
+                        // Parse Table Type
+                        var elementBindings = ObjectType.GetMembers()
+                                .Select(member => new ElementBinding(member))
+                                .Where(bind => bind.IsDataElementBinding)
+                                .ToList();
+
+                        // Views Can't Handle Auto GUID Key
+                        if (!isView)
+                        {
+                                var objectIdMember = ObjectType.GetMember(
+                                                                nameof(DataObject.ObjectId),
+                                                                BindingFlags.Instance |
+                                                                BindingFlags.Public |
+                                                                BindingFlags.NonPublic |
+                                                                BindingFlags.FlattenHierarchy)
+                                                        .FirstOrDefault(member => member.MemberType == MemberTypes.Property || member.MemberType == MemberTypes.Field)
+                                                    ?? typeof(DataObject)
+                                                                .GetMember(
+                                                                        nameof(DataObject.ObjectId),
+                                                                        BindingFlags.Instance |
+                                                                        BindingFlags.Public |
+                                                                        BindingFlags.NonPublic)
+                                                                .FirstOrDefault(member => member.MemberType == MemberTypes.Property || member.MemberType == MemberTypes.Field);
+
+                                if (objectIdMember != null)
+                                {
+                                        var fieldElementBindings = elementBindings
+                                                .Where(bind => bind.Relation == null)
+                                                .ToList();
+
+                                        // If no Primary Key AutoIncrement add GUID
+                                        if (fieldElementBindings.Any(bind => bind.PrimaryKey != null && !bind.PrimaryKey.AutoIncrement))
+                                        {
+                                                elementBindings.Add(new ElementBinding(objectIdMember,
+                                                        new DataElement { Unique = true },
+                                                        string.Format("{0}_ID", TableName)));
+                                        }
+                                        else if (fieldElementBindings.All(bind => bind.PrimaryKey == null))
+                                        {
+                                                elementBindings.Add(new ElementBinding(objectIdMember,
+                                                        new PrimaryKey(),
+                                                        string.Format("{0}_ID", TableName)));
+                                        }
+                                }
+                        }
+
+                        ElementBindings = elementBindings.ToArray();
 			
 			// Prepare Table
 			Table = new DataTable(TableName);
