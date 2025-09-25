@@ -1,24 +1,29 @@
 #!/bin/sh
+set -eu
 
 # Default values for UID and GID if not provided
-APP_UID=${UID:-1000}
-APP_GID=${GID:-1000}
+APP_UID="${UID:-1000}"
+APP_GID="${GID:-1000}"
 
 # Check if running as root
 if [ "$(id -u)" != "0" ]; then
     >&2 echo "ERROR: Not running as root. Please run as root, and pass HOST_UID and HOST_GID."
     exit 120
-elif [ "${APP_UID}" = "" ]; then
+fi
+
+if [ -z "${APP_UID}" ]; then
     >&2 echo "ERROR: HOST_UID is not set. Please run as root, and pass HOST_UID and HOST_GID."
     exit 121
-elif [ "${APP_GID}" = "" ]; then
+fi
+
+if [ -z "${APP_GID}" ]; then
     >&2 echo "ERROR: HOST_GID is not set. Please run as root, and pass HOST_UID and HOST_GID."
     exit 122
 fi
 
 # Handle existing group with the same GID
-EXISTING_GROUP_NAME=$(getent group "${APP_GID}" | cut -d: -f1)
-if [ "${EXISTING_GROUP_NAME}" != "" ]; then
+EXISTING_GROUP_NAME=$(getent group "${APP_GID}" | cut -d: -f1 || true)
+if [ -n "${EXISTING_GROUP_NAME}" ]; then
     delgroup "${EXISTING_GROUP_NAME}"
 fi
 
