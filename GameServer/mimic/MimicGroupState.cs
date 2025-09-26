@@ -52,5 +52,16 @@ namespace DOL.GS.Mimic
         {
             CampFilter = color;
         }
+
+        public MimicNPC? GetLeader()
+        {
+            foreach (MimicNPC member in _members)
+            {
+                if (member.Role.HasFlag(MimicRole.Leader) && member.IsAlive)
+                    return member;
+            }
+
+            return null;
+        }
     }
 }

@@ -10,16 +10,18 @@ namespace DOL.GS.Mimic
         public eRealm Realm { get; }
         public eCharacterClass CharacterClass { get; }
         public ushort ModelId { get; }
+        public MimicRole DefaultRole { get; }
         public byte MinimumLevel { get; }
         public byte MaximumLevel { get; }
 
-        public MimicTemplate(string id, string displayName, eRealm realm, eCharacterClass characterClass, ushort modelId, byte minLevel, byte maxLevel)
+        public MimicTemplate(string id, string displayName, eRealm realm, eCharacterClass characterClass, ushort modelId, MimicRole defaultRole, byte minLevel, byte maxLevel)
         {
             Id = id;
             DisplayName = displayName;
             Realm = realm;
             CharacterClass = characterClass;
             ModelId = modelId;
+            DefaultRole = defaultRole;
             MinimumLevel = minLevel;
             MaximumLevel = maxLevel;
         }

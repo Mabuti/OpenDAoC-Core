@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using DOL.Database;
+using DOL.GS;
 using DOL.GS.Keeps;
 using DOL.GS.Spells;
 
@@ -21,50 +22,126 @@ namespace DOL.GS.Mimic
         private const int BulwarkSpellId = 950013;
         private const int SerenitySpellId = 950014;
         private const int SmiteSpellId = 950020;
+        private const int EntrapmentSpellId = 950030;
 
         private static readonly Dictionary<string, Spell> _baseSpells = new();
+
+        private static readonly HashSet<eCharacterClass> SupportClasses = new()
+        {
+            eCharacterClass.Cleric,
+            eCharacterClass.Druid,
+            eCharacterClass.Healer,
+            eCharacterClass.Friar,
+            eCharacterClass.Shaman,
+            eCharacterClass.Bard,
+            eCharacterClass.Warden,
+            eCharacterClass.Valkyrie,
+            eCharacterClass.Heretic,
+            eCharacterClass.Mentalist,
+            eCharacterClass.Minstrel,
+            eCharacterClass.Paladin,
+            eCharacterClass.Skald,
+            eCharacterClass.MaulerAlb,
+            eCharacterClass.MaulerMid,
+            eCharacterClass.MaulerHib
+        };
+
+        private static readonly HashSet<eCharacterClass> PrimaryHealerClasses = new()
+        {
+            eCharacterClass.Cleric,
+            eCharacterClass.Druid,
+            eCharacterClass.Healer,
+            eCharacterClass.Shaman,
+            eCharacterClass.Friar,
+            eCharacterClass.Bard,
+            eCharacterClass.Warden,
+            eCharacterClass.Valkyrie,
+            eCharacterClass.Mentalist,
+            eCharacterClass.Heretic
+        };
+
+        private static readonly HashSet<eCharacterClass> CasterClasses = new()
+        {
+            eCharacterClass.Sorcerer,
+            eCharacterClass.Wizard,
+            eCharacterClass.Cabalist,
+            eCharacterClass.Theurgist,
+            eCharacterClass.Necromancer,
+            eCharacterClass.Spiritmaster,
+            eCharacterClass.Runemaster,
+            eCharacterClass.Bonedancer,
+            eCharacterClass.Warlock,
+            eCharacterClass.Animist,
+            eCharacterClass.Bainshee,
+            eCharacterClass.Eldritch,
+            eCharacterClass.Enchanter
+        };
+
+        private static readonly HashSet<eCharacterClass> ArcherClasses = new()
+        {
+            eCharacterClass.Scout,
+            eCharacterClass.Hunter,
+            eCharacterClass.Ranger
+        };
+
+        private static readonly HashSet<eCharacterClass> StealthClasses = new()
+        {
+            eCharacterClass.Infiltrator,
+            eCharacterClass.Shadowblade,
+            eCharacterClass.Nightshade
+        };
 
         static MimicLoadoutBuilder()
         {
             ClothingMgr.LoadTemplates();
         }
 
-        public static void Configure(MimicNPC mimic)
+        public static void Configure(MimicNPC mimic, MimicRole role)
         {
-            switch (mimic.Template.CharacterClass)
+            eCharacterClass characterClass = mimic.Template.CharacterClass;
+            SupportArchetype archetype = GetArchetype(mimic.Template.Realm);
+
+            if (SupportClasses.Contains(characterClass) || role.HasFlag(MimicRole.Healer))
             {
-                case eCharacterClass.Cleric:
-                    ApplySupportLoadout(mimic, SupportArchetype.Albion);
-                    break;
-                case eCharacterClass.Healer:
-                    ApplySupportLoadout(mimic, SupportArchetype.Midgard);
-                    break;
-                case eCharacterClass.Druid:
-                    ApplySupportLoadout(mimic, SupportArchetype.Hibernia);
-                    break;
-                case eCharacterClass.Armsman:
-                    ApplyMeleeLoadout(mimic, ClothingMgr.Albion_Fighter.CloneTemplate());
-                    break;
-                case eCharacterClass.Warrior:
-                    ApplyMeleeLoadout(mimic, ClothingMgr.Midgard_Fighter.CloneTemplate());
-                    break;
-                case eCharacterClass.Hero:
-                    ApplyMeleeLoadout(mimic, ClothingMgr.Hibernia_Fighter.CloneTemplate());
-                    break;
-                default:
-                    // Default to a generic look if we do not have a tailored loadout yet.
-                    ApplyMeleeLoadout(mimic, ClothingMgr.Albion_Fighter.CloneTemplate());
-                    break;
+                bool includeHeals = PrimaryHealerClasses.Contains(characterClass) || role.HasFlag(MimicRole.Healer);
+                ApplySupportLoadout(mimic, archetype, role, includeHeals);
+                return;
             }
+
+            if (CasterClasses.Contains(characterClass) || (role.HasFlag(MimicRole.CrowdControl) && !role.HasFlag(MimicRole.Tank)))
+            {
+                ApplyCasterLoadout(mimic, archetype, role);
+                return;
+            }
+
+            if (ArcherClasses.Contains(characterClass))
+            {
+                ApplyArcherLoadout(mimic);
+                return;
+            }
+
+            if (StealthClasses.Contains(characterClass))
+            {
+                ApplyStealthLoadout(mimic);
+                return;
+            }
+
+            ApplyMeleeLoadout(mimic);
         }
 
-        private static void ApplyMeleeLoadout(MimicNPC mimic, GameNpcInventoryTemplate template)
+        private static void ApplyMeleeLoadout(MimicNPC mimic)
         {
-            mimic.Inventory = template;
+            mimic.Inventory = mimic.Template.Realm switch
+            {
+                eRealm.Albion => ClothingMgr.Albion_Fighter.CloneTemplate(),
+                eRealm.Midgard => ClothingMgr.Midgard_Fighter.CloneTemplate(),
+                eRealm.Hibernia => ClothingMgr.Hibernia_Fighter.CloneTemplate(),
+                _ => ClothingMgr.Albion_Fighter.CloneTemplate()
+            };
             mimic.SwitchWeapon(eActiveWeaponSlot.Standard);
         }
 
-        private static void ApplySupportLoadout(MimicNPC mimic, SupportArchetype archetype)
+        private static void ApplySupportLoadout(MimicNPC mimic, SupportArchetype archetype, MimicRole role, bool includeHeals)
         {
             mimic.Inventory = archetype switch
             {
@@ -76,17 +153,82 @@ namespace DOL.GS.Mimic
 
             mimic.SwitchWeapon(eActiveWeaponSlot.Standard);
 
+            List<Spell> spells = new();
+
+            if (includeHeals)
+            {
+                spells.Add(CreateHealSpell(mimic, 6.0));
+                spells.Add(CreateEmergencyHealSpell(mimic, 4.5));
+                spells.Add(CreateHealOverTimeSpell(mimic));
+            }
+
+            if (role.HasFlag(MimicRole.Support) || includeHeals)
+            {
+                spells.Add(CreateBuffSpell(mimic, eSpellType.StrengthConstitutionBuff, 420, 421));
+                spells.Add(CreateBuffSpell(mimic, eSpellType.PowerRegenBuff, 949, 950));
+            }
+
+            spells.Add(CreateDamageSpell(mimic, archetype));
+
+            if (role.HasFlag(MimicRole.CrowdControl))
+                spells.Add(CreateCrowdControlSpell(mimic, archetype));
+
+            mimic.Spells = spells;
+        }
+
+        private static void ApplyCasterLoadout(MimicNPC mimic, SupportArchetype archetype, MimicRole role)
+        {
+            mimic.Inventory = mimic.Template.Realm switch
+            {
+                eRealm.Albion => ClothingMgr.Albion_Caster.CloneTemplate(),
+                eRealm.Midgard => ClothingMgr.Midgard_Caster.CloneTemplate(),
+                eRealm.Hibernia => ClothingMgr.Hibernia_Caster.CloneTemplate(),
+                _ => ClothingMgr.Albion_Caster.CloneTemplate()
+            };
+
+            mimic.SwitchWeapon(eActiveWeaponSlot.Standard);
+
             List<Spell> spells = new()
             {
-                CreateHealSpell(mimic, 6.0),
-                CreateEmergencyHealSpell(mimic, 4.5),
-                CreateHealOverTimeSpell(mimic),
-                CreateBuffSpell(mimic, eSpellType.StrengthConstitutionBuff, 420, 421),
-                CreateBuffSpell(mimic, eSpellType.PowerRegenBuff, 949, 950),
                 CreateDamageSpell(mimic, archetype)
             };
 
+            if (role.HasFlag(MimicRole.CrowdControl))
+                spells.Add(CreateCrowdControlSpell(mimic, archetype));
+
+            if (role.HasFlag(MimicRole.Support))
+            {
+                spells.Add(CreateBuffSpell(mimic, eSpellType.StrengthConstitutionBuff, 420, 421));
+                spells.Add(CreateBuffSpell(mimic, eSpellType.PowerRegenBuff, 949, 950));
+            }
+
             mimic.Spells = spells;
+        }
+
+        private static void ApplyArcherLoadout(MimicNPC mimic)
+        {
+            mimic.Inventory = mimic.Template.Realm switch
+            {
+                eRealm.Albion => ClothingMgr.Albion_Archer.CloneTemplate(),
+                eRealm.Midgard => ClothingMgr.Midgard_Archer.CloneTemplate(),
+                eRealm.Hibernia => ClothingMgr.Hibernia_Archer.CloneTemplate(),
+                _ => ClothingMgr.Albion_Archer.CloneTemplate()
+            };
+
+            mimic.SwitchWeapon(eActiveWeaponSlot.Distance);
+        }
+
+        private static void ApplyStealthLoadout(MimicNPC mimic)
+        {
+            mimic.Inventory = mimic.Template.Realm switch
+            {
+                eRealm.Albion => ClothingMgr.Albion_Stealther.CloneTemplate(),
+                eRealm.Midgard => ClothingMgr.Midgard_Stealther.CloneTemplate(),
+                eRealm.Hibernia => ClothingMgr.Hibernia_Stealther.CloneTemplate(),
+                _ => ClothingMgr.Albion_Stealther.CloneTemplate()
+            };
+
+            mimic.SwitchWeapon(eActiveWeaponSlot.Standard);
         }
 
         private static Spell CreateHealSpell(MimicNPC mimic, double scaling)
@@ -187,6 +329,34 @@ namespace DOL.GS.Mimic
             };
 
             return spell;
+        }
+
+        private static Spell CreateCrowdControlSpell(MimicNPC mimic, SupportArchetype archetype)
+        {
+            Spell spell = CloneBaseSpell($"mimic_support_root_{archetype}", () =>
+            {
+                DbSpell db = CreateBaseSpell("Mimic Entrapment", EntrapmentSpellId + (int)archetype, eSpellType.Root, eSpellTarget.ENEMY, 1500, 12, 2.8, 15, 716);
+                db.Description = "A binding spell that roots an enemy in place to protect the group.";
+                db.SpellGroup = 9155 + (int)archetype;
+                db.EffectGroup = db.SpellGroup;
+                db.Duration = 20;
+                return new Spell(db, 50);
+            });
+
+            spell.Level = (byte)Math.Clamp(mimic.Level, 1, byte.MaxValue);
+            spell.Duration = (int)Math.Clamp(10 + mimic.Level * 0.4, 12, 30);
+            return spell;
+        }
+
+        private static SupportArchetype GetArchetype(eRealm realm)
+        {
+            return realm switch
+            {
+                eRealm.Albion => SupportArchetype.Albion,
+                eRealm.Midgard => SupportArchetype.Midgard,
+                eRealm.Hibernia => SupportArchetype.Hibernia,
+                _ => SupportArchetype.Albion
+            };
         }
 
         private static DbSpell CreateBaseSpell(string name, int spellId, eSpellType type, eSpellTarget target, int range, int power, double castTime, int recastDelay, int icon)
