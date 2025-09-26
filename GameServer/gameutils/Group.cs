@@ -294,8 +294,13 @@ namespace DOL.GS
                 else if (memberCount > 1 && LivingLeader == living)
                 {
                     // Assign a new leader.
-                    LivingLeader = _groupMembers.OfType<GamePlayer>().First() ?? _groupMembers[0];
-                    SendMessageToGroupMembers($"{Leader.Name} is the new group leader.", eChatType.CT_System, eChatLoc.CL_SystemWindow);
+                    GameLiving? newLeader = _groupMembers.OfType<GamePlayer>().FirstOrDefault() ?? _groupMembers.FirstOrDefault();
+
+                    if (newLeader != null)
+                    {
+                        LivingLeader = newLeader;
+                        SendMessageToGroupMembers($"{LivingLeader.Name} is the new group leader.", eChatType.CT_System, eChatLoc.CL_SystemWindow);
+                    }
                 }
             }
 

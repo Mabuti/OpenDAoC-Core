@@ -96,12 +96,38 @@ namespace DOL.GS.Mimic
             }
         }
 
-        public static void ClearAllMimics()
+        public static int ClearAllMimics()
         {
+            int removed = 0;
+
             foreach (MimicNPC mimic in _activeMimics.Values.ToList())
             {
                 RemoveMimic(mimic);
+                removed++;
             }
+
+            PruneEmptyGroupStates();
+
+            return removed;
+        }
+
+        public static int ClearUngroupedMimics()
+        {
+            int removed = 0;
+
+            foreach (MimicNPC mimic in _activeMimics.Values.ToList())
+            {
+                if (mimic.Group != null)
+                    continue;
+
+                RemoveMimic(mimic);
+                removed++;
+            }
+
+            if (removed > 0)
+                PruneEmptyGroupStates();
+
+            return removed;
         }
 
         public static void SummonGroup(GamePlayer player)
@@ -172,6 +198,15 @@ namespace DOL.GS.Mimic
         public static MimicGroupState GetOrCreateGroupState(GamePlayer player)
         {
             return _groupStates.GetOrAdd(player, p => new MimicGroupState(p));
+        }
+
+        private static void PruneEmptyGroupStates()
+        {
+            foreach (var entry in _groupStates.ToList())
+            {
+                if (entry.Value.Members.Count == 0)
+                    _groupStates.TryRemove(entry.Key, out _);
+            }
         }
 
         public static bool TryParseConColor(string text, out ConColor color)
