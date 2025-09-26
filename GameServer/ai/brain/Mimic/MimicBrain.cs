@@ -186,7 +186,6 @@ namespace DOL.GS.Mimic
                 if (target != null)
                     EngageTarget(target);
             }
-
             _ownerThreatExpires = GameLoop.GameLoopTime + OWNER_THREAT_DURATION;
         }
 
