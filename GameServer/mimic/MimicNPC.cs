@@ -76,6 +76,12 @@ namespace DOL.GS.Mimic
             return result;
         }
 
+        public override bool RemoveFromWorld()
+        {
+            _brain.Dispose();
+            return base.RemoveFromWorld();
+        }
+
         public void Follow(GameLiving target)
         {
             if (target == null)
