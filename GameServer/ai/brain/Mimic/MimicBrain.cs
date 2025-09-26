@@ -105,10 +105,12 @@ namespace DOL.GS.Mimic
                 return;
 
             if (Owner != null && !_mimic.IsWithinRadius(Owner, 350))
-            {
                 _mimic.Follow(Owner, 150, 350);
                 LogInstruction($"Following owner {Owner.Name}.");
             }
+
+            EngageTarget(ownerTarget);
+            return _activeTarget;
         }
 
         private void UpdateCombatOrder()
