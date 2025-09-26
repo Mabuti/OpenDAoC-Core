@@ -47,6 +47,9 @@ namespace DOL.GS.Mimic
                 if (_mimic.IsAttacking)
                     Disengage();
 
+                if (HasAggro)
+                    ClearAggroList();
+
                 ClearActiveTarget();
                 return;
             }
@@ -118,7 +121,11 @@ namespace DOL.GS.Mimic
 
         private GameLiving? SelectTarget()
         {
+            GameLiving? previousTarget = _activeTarget;
             _activeTarget = ValidateTarget(_activeTarget);
+
+            if (_activeTarget == null && previousTarget != null)
+                RemoveFromAggroList(previousTarget);
 
             if (_activeTarget != null)
                 return _activeTarget;
@@ -141,7 +148,7 @@ namespace DOL.GS.Mimic
                 return null;
             }
 
-            _activeTarget = ownerTarget;
+            EngageTarget(ownerTarget);
             return _activeTarget;
         }
 
@@ -172,12 +179,31 @@ namespace DOL.GS.Mimic
 
         private void OnOwnerAttacked(DOLEvent e, object sender, EventArgs args)
         {
+            if (args is AttackedByEnemyEventArgs { AttackData.Attacker: GameLiving attacker })
+            {
+                GameLiving? target = ValidateTarget(attacker);
+
+                if (target != null)
+                    EngageTarget(target);
+            }
             _ownerThreatExpires = GameLoop.GameLoopTime + OWNER_THREAT_DURATION;
         }
 
         private void ClearActiveTarget()
         {
+            if (_activeTarget != null)
+                RemoveFromAggroList(_activeTarget);
+
             _activeTarget = null;
+        }
+
+        private void EngageTarget(GameLiving target)
+        {
+            if (_activeTarget == target)
+                return;
+
+            _activeTarget = target;
+            AddToAggroList(target, 1);
         }
     }
 }

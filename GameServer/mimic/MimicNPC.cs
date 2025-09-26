@@ -26,7 +26,6 @@ namespace DOL.GS.Mimic
             Level = (byte)Math.Clamp(level, template.MinimumLevel, template.MaximumLevel);
             Realm = template.Realm;
             Model = template.ModelId;
-            Flags |= eFlags.PEACE;
             Role = MimicRole.None;
             PreventCombat = false;
             PvPMode = false;
