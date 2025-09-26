@@ -2,9 +2,10 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using DOL.GS;
+using DOL.GS.PacketHandler;
 using DOL.GS.PlayerClass;
 using DOL.GS.Utils;
-using DOL.GS;
 
 namespace DOL.GS.Mimic
 {
@@ -72,12 +73,18 @@ namespace DOL.GS.Mimic
                 Heading = player.Heading
             };
 
+            MimicLoadoutBuilder.Configure(mimic);
+
             if (!mimic.AddToWorld())
                 throw new InvalidOperationException("Unable to add mimic to world.");
+
+            mimic.BroadcastLivingEquipmentUpdate();
 
             EnsureGroupMembership(player, mimic);
             groupState.AddMember(mimic);
             _activeMimics[mimic.InternalID] = mimic;
+
+            player.Out.SendMessage($"{mimic.Name} has been summoned at level {mimic.Level}.", eChatType.CT_System, eChatLoc.CL_SystemWindow);
             return mimic;
         }
 
