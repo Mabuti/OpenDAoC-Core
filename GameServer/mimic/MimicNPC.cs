@@ -29,6 +29,7 @@ namespace DOL.GS.Mimic
             Role = MimicRole.None;
             PreventCombat = false;
             PvPMode = false;
+            InternalID ??= $"mimic_{Guid.NewGuid():N}";
             _brain = new MimicBrain(owner, this);
             SetOwnBrain(_brain);
         }
