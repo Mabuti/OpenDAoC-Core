@@ -43,8 +43,10 @@ namespace DOL.GS.Commands
                     break;
                 case "clear":
                     MimicManager.SetBattleState(region, false);
-                    MimicManager.ClearAllMimics();
-                    DisplayMessage(client, "Thidranki mimics cleared.");
+                    int cleared = MimicManager.ClearAllMimics();
+                    DisplayMessage(client, cleared == 0
+                        ? "No mimics were active to clear."
+                        : $"Cleared {cleared} mimic{(cleared == 1 ? string.Empty : "s")} from Thidranki.");
                     break;
                 default:
                     DisplaySyntax(client);
