@@ -42,3 +42,8 @@ About Linux, you can use your package manager to install theses tools: cmake, g+
 2. `mkdir build && cd build`
 3. `cmake -DCMAKE_BUILD_TYPE=Release .. && make`
 4. Copy `Detour.so` to your server's `/lib` folder
+
+### Prebuilt binaries
+
+The repository now embeds a compressed Linux shared library that is unpacked automatically at runtime.
+When the server starts, it materializes `lib/Detour.so` beside the managed binaries so Docker and manual deployments pick it up without any extra steps.

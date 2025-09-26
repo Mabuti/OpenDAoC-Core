@@ -488,3 +488,6 @@ $RECYCLE.BIN/
 
 # Local dotnet installation directory
 .dotnet/
+
+# Native pathing artifacts
+GameServer/lib/linux-x64/libDetour.so

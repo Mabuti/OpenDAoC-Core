@@ -140,6 +140,8 @@ namespace DOL.GS
         {
             try
             {
+                DetourLibraryInstaller.EnsureNativeLibraryPresent();
+
                 nint dummy = IntPtr.Zero;
                 LoadNavMesh("this file does not exists!", ref dummy);
             }

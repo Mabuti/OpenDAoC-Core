@@ -73,6 +73,11 @@
       <Folder Include="scripts\quests\BattlegroundQuests\Caledonia\" />
       <Folder Include="scripts\quests\BattlegroundQuests\Thidranki\" />
     </ItemGroup>
+    <ItemGroup>
+        <EmbeddedResource Include="lib/linux-x64/libDetour.so.gz.b64">
+            <LogicalName>Detour.libDetour.so.gz.b64</LogicalName>
+        </EmbeddedResource>
+    </ItemGroup>
     <Target Name="CopyFiles" AfterTargets="AfterBuild">
         <Copy SourceFiles="@(TranslationFiles)" DestinationFiles="@(TranslationFiles->'$(MSBuildProjectDirectory)\..\$(Configuration)\languages\%(RecursiveDir)%(Filename)%(Extension)')" />
         <Copy SourceFiles="@(APIDocs)" DestinationFiles="@(APIDocs->'$(MSBuildProjectDirectory)\..\$(Configuration)\wwwroot\docs\%(RecursiveDir)%(Filename)%(Extension)')" />
