@@ -108,6 +108,7 @@ namespace DOL.GS.Mimic
             GameEventMgr.RemoveHandler(Owner, GameLivingEvent.AttackedByEnemy, _ownerAttackedHandler);
         }
 
+
         private void HandleGuardAndFollow()
         {
             if (_guardTarget != null)
