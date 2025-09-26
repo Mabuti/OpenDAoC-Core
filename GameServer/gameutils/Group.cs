@@ -293,8 +293,17 @@ namespace DOL.GS
                 }
                 else if (memberCount > 1 && LivingLeader == living)
                 {
-                    // Assign a new leader.
-                    GameLiving? newLeader = _groupMembers.OfType<GamePlayer>().FirstOrDefault() ?? _groupMembers.FirstOrDefault();
+                    // Assign a new leader. Prefer a player, but fall back to the first remaining member.
+                    GameLiving? newLeader = null;
+
+                    foreach (GamePlayer playerMember in _groupMembers.OfType<GamePlayer>())
+                    {
+                        newLeader = playerMember;
+                        break;
+                    }
+
+                    if (newLeader == null && _groupMembers.Count > 0)
+                        newLeader = _groupMembers[0];
 
                     if (newLeader != null)
                     {
