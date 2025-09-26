@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using DOL.AI.Brain;
 using DOL.Events;
 using DOL.GS;
+using DOL.GS.PacketHandler;
 using DOL.GS.Spells;
 using DOL.Logging;
 
@@ -13,6 +15,7 @@ namespace DOL.GS.Mimic
         private const int CAMP_SCAN_INTERVAL = 2000;
 
         private static readonly Logger log = LoggerManager.Create(typeof(MimicBrain));
+        private static readonly SpellLine MobSpellLine = SkillBase.GetSpellLine(GlobalSpellsLines.Mob_Spells) ?? throw new InvalidOperationException("Missing Mob spell line.");
 
         private readonly MimicNPC _mimic;
         private readonly DOLEventHandler _ownerAttackedHandler;
@@ -24,6 +27,19 @@ namespace DOL.GS.Mimic
         private long _ownerThreatExpires;
         private long _nextCampScan;
         private string? _lastInstruction;
+        private bool _isLeader;
+        private bool _isPuller;
+        private bool _isTank;
+        private bool _isCrowdControl;
+        private bool _isAssist;
+        private bool _isHealer;
+        private bool _isSupport;
+        private bool _isDamageDealer;
+        private bool _isScout;
+        private long _suppressCombatUntil;
+        private long _nextCrowdControlCheck;
+        private long _nextScoutPulse;
+        private string? _lastScoutReport;
 
         public MimicBrain(GameLiving owner, MimicNPC mimic) : base(owner)
         {
@@ -36,6 +52,7 @@ namespace DOL.GS.Mimic
 
         public override void Think()
         {
+            HandleRoleBehaviors();
             UpdateCombatOrder();
             base.Think();
             HandleGuardCampAndFollow();
@@ -85,6 +102,61 @@ namespace DOL.GS.Mimic
             GameEventMgr.RemoveHandler(Owner, GameLivingEvent.AttackedByEnemy, _ownerAttackedHandler);
         }
 
+        public void OnRoleChanged(MimicRole role)
+        {
+            _isLeader = role.HasFlag(MimicRole.Leader);
+            _isPuller = role.HasFlag(MimicRole.Puller);
+            _isTank = role.HasFlag(MimicRole.Tank);
+            _isCrowdControl = role.HasFlag(MimicRole.CrowdControl);
+            _isAssist = role.HasFlag(MimicRole.Assist);
+            _isHealer = role.HasFlag(MimicRole.Healer);
+            _isSupport = role.HasFlag(MimicRole.Support);
+            _isDamageDealer = role.HasFlag(MimicRole.DamageDealer) || _isAssist;
+            _isScout = role.HasFlag(MimicRole.Scout);
+
+            if (_isTank && Owner != null)
+            {
+                _mimic.SetGuardTarget(Owner);
+            }
+            else if (!_isTank && _guardTarget == Owner)
+            {
+                _mimic.SetGuardTarget(null);
+            }
+
+            _suppressCombatUntil = 0;
+            _nextCrowdControlCheck = 0;
+            _nextScoutPulse = 0;
+            _lastScoutReport = null;
+
+            LogInstruction($"Role updated to {MimicRoleInfo.ToDisplayString(role)}.", force: true);
+        }
+
+        private void HandleRoleBehaviors()
+        {
+            if (!IsActive)
+                return;
+
+            bool performedSupportAction = false;
+
+            if ((_isHealer || _isSupport) && CheckSpells(StandardMobBrain.eCheckSpellType.Defensive))
+            {
+                _suppressCombatUntil = Math.Max(_suppressCombatUntil, GameLoop.GameLoopTime + 1500);
+                performedSupportAction = true;
+            }
+
+            if (_isCrowdControl && TryCrowdControlAction())
+            {
+                _suppressCombatUntil = Math.Max(_suppressCombatUntil, GameLoop.GameLoopTime + 2000);
+                performedSupportAction = true;
+            }
+
+            if (_isScout)
+                PerformScoutSweep();
+
+            if (performedSupportAction && _preventCombat)
+                _suppressCombatUntil = Math.Max(_suppressCombatUntil, GameLoop.GameLoopTime + 500);
+        }
+
         private void HandleGuardCampAndFollow()
         {
             if (_guardTarget != null)
@@ -107,7 +179,9 @@ namespace DOL.GS.Mimic
             if (_mimic.IsAttacking)
                 return;
 
-            if (_mimic.GroupState.Camp is MimicCampSettings camp)
+            MimicCampSettings? camp = _mimic.GroupState.Camp;
+
+            if (camp != null)
             {
                 Point3D mimicPosition = new Point3D(_mimic.X, _mimic.Y, _mimic.Z);
 
@@ -126,6 +200,23 @@ namespace DOL.GS.Mimic
                 return;
             }
 
+            if (camp == null)
+            {
+                MimicNPC? leader = _mimic.GroupState.GetLeader();
+
+                if (!_isLeader && leader != null && leader != _mimic && leader.IsAlive)
+                {
+                    if (!_mimic.IsWithinRadius(leader, 220))
+                    {
+                        WalkState = eWalkState.Follow;
+                        _mimic.Follow(leader, 150, 280);
+                        LogInstruction($"Maintaining formation with leader {leader.Name}.");
+                    }
+
+                    return;
+                }
+            }
+
             if (Owner != null && !_mimic.IsWithinRadius(Owner, 350))
             {
                 WalkState = eWalkState.Follow;
@@ -138,6 +229,14 @@ namespace DOL.GS.Mimic
         {
             if (!IsActive)
                 return;
+
+            if (_suppressCombatUntil > GameLoop.GameLoopTime)
+            {
+                if (!HasAggro)
+                    ClearCombatOrders(forceDisengage: false);
+
+                return;
+            }
 
             if (_preventCombat)
             {
@@ -156,13 +255,22 @@ namespace DOL.GS.Mimic
                 return;
             }
 
-            GameLiving? campTarget = EvaluateCampTarget();
+            GameLiving? campTarget = (_isPuller || _isTank || _isLeader || _isCrowdControl || _isScout) ? EvaluateCampTarget() : null;
 
             if (campTarget != null)
             {
-                EngageTarget(campTarget);
-                LogInstruction($"Engaging camp target {campTarget.Name}.");
-                return;
+                if (ShouldEngageCampTarget())
+                {
+                    EngageTarget(campTarget);
+                    LogInstruction($"Engaging camp target {campTarget.Name}.");
+                    return;
+                }
+
+                if (_isScout)
+                {
+                    AnnounceThreat($"{_mimic.Name} spots {campTarget.Name} near the camp.");
+                    LogInstruction($"Scout identified camp threat {campTarget.Name}.");
+                }
             }
 
             if (Owner is not GameLiving owner)
@@ -352,18 +460,206 @@ namespace DOL.GS.Mimic
 
         private bool ShouldAssistOwner(GameLiving owner, GameLiving target)
         {
+            bool ownerAggressive = OwnerIsAggressive(owner);
+            bool ownerThreatened = IsOwnerUnderThreat();
+
             if (_pvpMode)
             {
                 if (target is GamePlayer)
                     return true;
 
-                return IsOwnerUnderThreat() || HasAggro;
+                return ownerThreatened || HasAggro;
             }
 
-            if (OwnerIsAggressive(owner))
+            if (_isTank)
                 return true;
 
-            return HasAggro;
+            if (_isDamageDealer)
+                return ownerAggressive || ownerThreatened || HasAggro;
+
+            if (_isCrowdControl)
+                return ownerAggressive || ownerThreatened;
+
+            if (_isSupport)
+                return ownerThreatened || HasAggro;
+
+            if (_isHealer)
+                return ownerThreatened;
+
+            if (_isPuller)
+                return ownerAggressive || ownerThreatened;
+
+            return ownerAggressive || HasAggro;
+        }
+
+        private bool ShouldEngageCampTarget()
+        {
+            if (_preventCombat)
+                return false;
+
+            if (_isPuller || _isTank || _isLeader)
+                return true;
+
+            if (_isCrowdControl && !_isHealer)
+                return true;
+
+            return false;
+        }
+
+        private bool TryCrowdControlAction()
+        {
+            if (_mimic.Spells == null || _mimic.Spells.Count == 0)
+                return false;
+
+            if (_mimic.IsCasting || _preventCombat)
+                return false;
+
+            if (GameLoop.GameLoopTime < _nextCrowdControlCheck)
+                return false;
+
+            _nextCrowdControlCheck = GameLoop.GameLoopTime + 3000;
+
+            Spell? ccSpell = null;
+
+            foreach (Spell spell in _mimic.Spells)
+            {
+                if (IsCrowdControlSpell(spell))
+                {
+                    ccSpell = spell;
+                    break;
+                }
+            }
+
+            if (ccSpell == null)
+                return false;
+
+            GameLiving? target = FindCrowdControlTarget(ccSpell);
+
+            if (target == null)
+                return false;
+
+            _mimic.TargetObject = target;
+
+            if (LivingHasEffect(target, ccSpell))
+                return false;
+
+            if (_mimic.CastSpell(ccSpell, MobSpellLine, checkLos: false))
+            {
+                LogInstruction($"Applying crowd control to {target.Name}.");
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsCrowdControlSpell(Spell spell)
+        {
+            return spell.SpellType is eSpellType.Mesmerize or eSpellType.Root or eSpellType.Stun or eSpellType.DamageSpeedDecrease;
+        }
+
+        private GameLiving? FindCrowdControlTarget(Spell spell)
+        {
+            if (_mimic.CurrentRegion is not Region region)
+                return null;
+
+            int range = Math.Clamp(spell.CalculateEffectiveRange(_mimic), 1, 2000);
+            GameLiving? primary = ValidateTarget(Owner?.TargetObject as GameLiving);
+            List<GameLiving> candidates = new();
+
+            void Consider(GameLiving? living)
+            {
+                if (living == null || living == primary || living == _mimic)
+                    return;
+
+                if (!living.IsAlive || living.ObjectState != GameObject.eObjectState.Active)
+                    return;
+
+                if (!GameServer.ServerRules.IsAllowedToAttack(_mimic, living, true))
+                    return;
+
+                if (!_mimic.IsWithinRadius(living, range))
+                    return;
+
+                if (LivingHasEffect(living, spell))
+                    return;
+
+                candidates.Add(living);
+            }
+
+            GameLiving? anchor = Owner as GameLiving ?? _mimic;
+
+            foreach (GamePlayer player in region.GetPlayersInRadius(anchor, (ushort)range))
+                Consider(player);
+
+            foreach (GameNPC npc in region.GetNPCsInRadius(anchor, (ushort)range))
+                Consider(npc);
+
+            if (candidates.Count == 0)
+                return null;
+
+            return candidates[Util.Random(candidates.Count - 1)];
+        }
+
+        private void PerformScoutSweep()
+        {
+            if (_mimic.CurrentRegion is not Region region || Owner is not GameLiving owner)
+                return;
+
+            if (GameLoop.GameLoopTime < _nextScoutPulse)
+                return;
+
+            _nextScoutPulse = GameLoop.GameLoopTime + 5000;
+
+            List<string> names = new();
+            int radius = 1200;
+
+            foreach (GamePlayer player in region.GetPlayersInRadius(owner, (ushort)radius))
+            {
+                if (player == owner || !player.IsAlive)
+                    continue;
+
+                if (!GameServer.ServerRules.IsAllowedToAttack(_mimic, player, true))
+                    continue;
+
+                names.Add(player.Name);
+
+                if (names.Count >= 3)
+                    break;
+            }
+
+            if (names.Count < 3)
+            {
+                foreach (GameNPC npc in region.GetNPCsInRadius(owner, (ushort)radius))
+                {
+                    if (npc == _mimic || !npc.IsAlive)
+                        continue;
+
+                    if (!GameServer.ServerRules.IsAllowedToAttack(_mimic, npc, true))
+                        continue;
+
+                    names.Add(npc.Name);
+
+                    if (names.Count >= 3)
+                        break;
+                }
+            }
+
+            if (names.Count == 0)
+                return;
+
+            string report = string.Join(", ", names);
+
+            if (report == _lastScoutReport)
+                return;
+
+            _lastScoutReport = report;
+            AnnounceThreat($"{_mimic.Name} scouts: {report} nearby.");
+        }
+
+        private void AnnounceThreat(string message)
+        {
+            if (Owner is GamePlayer player)
+                player.Out.SendMessage(message, eChatType.CT_System, eChatLoc.CL_SystemWindow);
         }
 
         private void LogInstruction(string instruction, bool force = false)

@@ -62,7 +62,8 @@ namespace DOL.GS.Commands
             for (int i = 0; i < templates.Count; i++)
             {
                 MimicTemplate template = templates[i];
-                client.Out.SendMessage($"[{i}] {template.DisplayName} (Level {template.MinimumLevel}-{template.MaximumLevel})", eChatType.CT_System, eChatLoc.CL_SystemWindow);
+                string roleText = MimicRoleInfo.ToDisplayString(template.DefaultRole);
+                client.Out.SendMessage($"[{i}] {template.DisplayName} (Level {template.MinimumLevel}-{template.MaximumLevel}) - Role: {roleText}", eChatType.CT_System, eChatLoc.CL_SystemWindow);
             }
         }
     }

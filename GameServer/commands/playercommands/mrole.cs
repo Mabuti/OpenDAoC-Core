@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using DOL.GS.Mimic;
 using DOL.GS.PacketHandler;
 
@@ -8,7 +9,7 @@ namespace DOL.GS.Commands
         "&mrole",
         ePrivLevel.Player,
         "Assign roles to mimics",
-        "/mrole <leader|puller|tank|cc|assist>")]
+        "/mrole <role[,role...]>")]
     public sealed class MimicRoleCommand : AbstractCommandHandler, ICommandHandler
     {
         public void OnCommand(GameClient client, string[] args)
@@ -19,13 +20,14 @@ namespace DOL.GS.Commands
             if (args.Length < 2)
             {
                 DisplaySyntax(client);
+                DisplayMessage(client, $"Available roles: {MimicRoleInfo.GetSyntax()}.");
                 return;
             }
 
-            MimicRole role = ParseRole(args[1]);
-            if (role == MimicRole.None)
+            string requested = string.Join(' ', args.Skip(1));
+            if (!MimicRoleInfo.TryParse(requested, out MimicRole role))
             {
-                DisplayMessage(client, "Unknown role.");
+                DisplayMessage(client, $"Unknown role. Available roles: {MimicRoleInfo.GetSyntax()}.");
                 return;
             }
 
@@ -37,7 +39,7 @@ namespace DOL.GS.Commands
             }
 
             MimicManager.AssignRole(mimic, role);
-            DisplayMessage(client, $"{mimic.Name} role set to {role}.");
+            DisplayMessage(client, $"{mimic.Name} role updated to {MimicRoleInfo.ToDisplayString(role)}.");
         }
 
         private static MimicNPC? GetTargetMimic(GamePlayer player)
@@ -48,17 +50,5 @@ namespace DOL.GS.Commands
             return null;
         }
 
-        private static MimicRole ParseRole(string value)
-        {
-            return value.ToLowerInvariant() switch
-            {
-                "leader" => MimicRole.Leader,
-                "puller" => MimicRole.Puller,
-                "tank" => MimicRole.Tank,
-                "cc" => MimicRole.CrowdControl,
-                "assist" => MimicRole.Assist,
-                _ => MimicRole.None
-            };
-        }
     }
 }
