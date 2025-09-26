@@ -26,10 +26,10 @@ namespace DOL.GS.Mimic
             Level = (byte)Math.Clamp(level, template.MinimumLevel, template.MaximumLevel);
             Realm = template.Realm;
             Model = template.ModelId;
-            Flags |= eFlags.PEACE;
             Role = MimicRole.None;
             PreventCombat = false;
             PvPMode = false;
+            InternalID ??= $"mimic_{Guid.NewGuid():N}";
             _brain = new MimicBrain(owner, this);
             SetOwnBrain(_brain);
         }
@@ -74,6 +74,12 @@ namespace DOL.GS.Mimic
             }
 
             return result;
+        }
+
+        public override bool RemoveFromWorld()
+        {
+            _brain.Dispose();
+            return base.RemoveFromWorld();
         }
 
         public void Follow(GameLiving target)
