@@ -108,10 +108,6 @@ namespace DOL.GS.Mimic
                 _mimic.Follow(Owner, 150, 350);
                 LogInstruction($"Following owner {Owner.Name}.");
             }
-            else if (!_mimic.IsAttacking && !OwnerIsAggressive(owner))
-            {
-                return null;
-            }
 
             EngageTarget(ownerTarget);
             return _activeTarget;
@@ -266,16 +262,17 @@ namespace DOL.GS.Mimic
 
         private void LogInstruction(string instruction, bool force = false)
         {
-            if (!log.IsInfoEnabled)
-                return;
-
             string message = $"[{_mimic.Name}] {instruction}";
 
             if (!force && string.Equals(_lastInstruction, message, StringComparison.Ordinal))
                 return;
 
             _lastInstruction = message;
-            log.Info(message);
+
+            if (log.IsInfoEnabled)
+                log.Info(message);
+
+            Console.WriteLine(message);
         }
     }
 }
