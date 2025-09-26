@@ -23,6 +23,8 @@ namespace DOL.GS.Mimic
             _mimic = mimic;
             _ownerAttackedHandler = new DOLEventHandler(OnOwnerAttacked);
             GameEventMgr.AddHandler(owner, GameLivingEvent.AttackedByEnemy, _ownerAttackedHandler);
+
+            AggressionState = eAggressionState.Defensive;
         }
 
         public override void Think()
@@ -78,8 +80,17 @@ namespace DOL.GS.Mimic
         {
             _preventCombat = value;
 
-            if (_preventCombat && _mimic.IsAttacking)
-                Disengage();
+            if (_preventCombat)
+            {
+                AggressionState = eAggressionState.Passive;
+
+                if (_mimic.IsAttacking)
+                    Disengage();
+            }
+            else
+            {
+                AggressionState = eAggressionState.Defensive;
+            }
         }
 
         public void SetPvPMode(bool value)
@@ -96,6 +107,7 @@ namespace DOL.GS.Mimic
         {
             GameEventMgr.RemoveHandler(Owner, GameLivingEvent.AttackedByEnemy, _ownerAttackedHandler);
         }
+
 
         private void HandleGuardAndFollow()
         {
@@ -200,6 +212,9 @@ namespace DOL.GS.Mimic
 
         private void EngageTarget(GameLiving target)
         {
+            if (AggressionState == eAggressionState.Passive)
+                AggressionState = eAggressionState.Defensive;
+
             if (_activeTarget == target)
                 return;
 
