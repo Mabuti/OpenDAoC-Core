@@ -9,23 +9,39 @@ volumes:
 services:
   db:
     image: mariadb:10.6
-    container_name: opendaoc-db
+    container_name: opendaoc-db-spb
     stdin_open: true
     tty: true
-    command: --default-authentication-plugin=mysql_native_password --lower_case_table_names=1 --character-set-server=utf8mb3 --collation-server=utf8mb3_general_ci --innodb_large_prefix=1 --innodb_file_format=Barracuda --innodb_file_per_table=1
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --lower_case_table_names=1
+      --character-set-server=utf8mb3
+      --collation-server=utf8mb3_general_ci
+      --innodb_large_prefix=1
+      --innodb_file_format=Barracuda
+      --innodb_file_per_table=1
     restart: always
     environment:
       MYSQL_DATABASE: opendaoc
-      MYSQL_ROOT_PASSWORD: my-secret-pw
+      MYSQL_ROOT_PASSWORD: "ZAQ!2wsxCDE#"
+    ports:
+      - "3306:3306"
     volumes:
       - opendaoc-db-data:/var/lib/mysql
-      - base-db:/docker-entrypoint-initdb.d
+      # Auto-import on first initialization: place your .sql files on host at ./opendaoc-db-core
+      # and uncomment the next line:
+      # - ./opendaoc-db-core:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pZAQ!2wsxCDE#"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
     networks:
       - opendaoc-network
 
   gameserver:
-    image: ghcr.io/opendaoc/opendaoc-core:latest
-    container_name: opendaoc-server
+    image: localhost:5000/opendaoc-singleplayerbots
+    container_name: opendaoc-server-spb
     stdin_open: true
     tty: true
     ports:
@@ -41,7 +57,7 @@ services:
       CPU_USE: "8"
       DB_AUTOSAVE: "True"
       DB_AUTOSAVE_INTERVAL: "10"
-      DB_CONNECTION_STRING: "server=db;port=3306;database=opendaoc;userid=root;password=my-secret-pw;treattinyasboolean=true"
+      DB_CONNECTION_STRING: "server=db;port=3306;database=opendaoc;userid=root;password=ZAQ!2wsxCDE#;treattinyasboolean=true"
       DB_TYPE: "MYSQL"
       DETECT_REGION_IP: "True"
       ENABLE_COMPILATION: "True"
@@ -50,7 +66,7 @@ services:
       GM_ACTION_LOGGER_NAME: "gmactions"
       INVALID_NAMES_FILE: "./config/invalidnames.txt"
       LOG_CONFIG_FILE: "./config/logconfig.xml"
-      REGION_IP: "0.0.0.0"
+      REGION_IP: "10.0.5.110"
       REGION_PORT: "10400"
       SCRIPT_ASSEMBLIES: ""
       SCRIPT_COMPILATION_TARGET: "./lib/GameServerScripts.dll"
