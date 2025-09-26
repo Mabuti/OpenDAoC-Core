@@ -10192,7 +10192,7 @@ namespace DOL.GS
 
                 var innerTasks = characterDataQuests.Select(async characterQuest =>
                 {
-                    var dbDataQuest = await DOLDB<DbDataQuest>.SelectObjectAsync(DB.Column("DataQuestID").IsEqualTo(characterQuest.DataQuestID));
+                    var dbDataQuest = await DOLDB<DbDataQuest>.SelectObjectAsync(DB.Column("ID").IsEqualTo(characterQuest.DataQuestID));
 
                     if (dbDataQuest == null || (DataQuest.eStartType)dbDataQuest.StartType is DataQuest.eStartType.Collection)
                         return null;
