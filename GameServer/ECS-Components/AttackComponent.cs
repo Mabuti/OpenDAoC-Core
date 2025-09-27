@@ -785,13 +785,9 @@ namespace DOL.GS
             bool oldAttackState = AttackState;
             AttackState = false;
             if (owner is GamePlayer playerOwner)
-                playerOwner.IsInAttackMode = false;
-            owner.CancelEngageEffect();
-            owner.styleComponent.NextCombatStyle = null;
-            owner.styleComponent.NextCombatBackupStyle = null;
-
-            if (owner is GamePlayer playerOwner)
             {
+                playerOwner.IsInAttackMode = false;
+
                 if (playerOwner.IsAlive && oldAttackState)
                     playerOwner.Out.SendAttackMode(AttackState);
             }
@@ -806,6 +802,10 @@ namespace DOL.GS
                     npcOwner.SwitchWeapon(eActiveWeaponSlot.Distance);
                 }
             }
+
+            owner.CancelEngageEffect();
+            owner.styleComponent.NextCombatStyle = null;
+            owner.styleComponent.NextCombatBackupStyle = null;
         }
 
         /// <summary>
