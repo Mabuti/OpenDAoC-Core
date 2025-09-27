@@ -243,7 +243,7 @@ namespace DOL.GS.Mimic
                 return new Spell(db, 50);
             });
 
-            spell.Level = (byte)Math.Clamp(mimic.Level, 1, byte.MaxValue);
+            spell.Level = (byte)Math.Clamp(mimic.Level, (byte)1, byte.MaxValue);
             spell.Value = Math.Round(80 + mimic.Level * scaling, 1);
             return spell;
         }
@@ -260,7 +260,7 @@ namespace DOL.GS.Mimic
                 return new Spell(db, 50);
             });
 
-            spell.Level = (byte)Math.Clamp(mimic.Level, 1, byte.MaxValue);
+            spell.Level = (byte)Math.Clamp(mimic.Level, (byte)1, byte.MaxValue);
             spell.Value = Math.Round(60 + mimic.Level * scaling, 1);
             return spell;
         }
@@ -279,7 +279,7 @@ namespace DOL.GS.Mimic
                 return new Spell(db, 50);
             });
 
-            spell.Level = (byte)Math.Clamp(mimic.Level, 1, byte.MaxValue);
+            spell.Level = (byte)Math.Clamp(mimic.Level, (byte)1, byte.MaxValue);
             spell.Value = Math.Round(12 + mimic.Level * 1.4, 1);
             return spell;
         }
@@ -298,7 +298,7 @@ namespace DOL.GS.Mimic
                 return new Spell(db, 50);
             });
 
-            spell.Level = (byte)Math.Clamp(mimic.Level, 1, byte.MaxValue);
+            spell.Level = (byte)Math.Clamp(mimic.Level, (byte)1, byte.MaxValue);
             spell.Value = type == eSpellType.PowerRegenBuff
                 ? Math.Round(3 + mimic.Level * 0.25, 1)
                 : Math.Round(12 + mimic.Level * 1.1, 1);
@@ -307,26 +307,25 @@ namespace DOL.GS.Mimic
 
         private static Spell CreateDamageSpell(MimicNPC mimic, SupportArchetype archetype)
         {
-            Spell spell = CloneBaseSpell("mimic_support_smite", () =>
+            Spell spell = CloneBaseSpell($"mimic_support_smite_{archetype}", () =>
             {
                 DbSpell db = CreateBaseSpell("Mimic Smite", SmiteSpellId, eSpellType.DirectDamage, eSpellTarget.ENEMY, 1500, 12, 2.8, 0, 717);
                 db.Description = "A modest ranged smite used to assist the group without diving into melee.";
                 db.SpellGroup = 9150;
                 db.EffectGroup = 9150;
                 db.Damage = 150;
-                db.DamageType = (int)eDamageType.Energy;
+                db.DamageType = archetype switch
+                {
+                    SupportArchetype.Albion => (int)eDamageType.Energy,
+                    SupportArchetype.Midgard => (int)eDamageType.Spirit,
+                    SupportArchetype.Hibernia => (int)eDamageType.Heat,
+                    _ => (int)eDamageType.Energy
+                };
                 return new Spell(db, 50);
             });
 
-            spell.Level = (byte)Math.Clamp(mimic.Level, 1, byte.MaxValue);
+            spell.Level = (byte)Math.Clamp(mimic.Level, (byte)1, byte.MaxValue);
             spell.Damage = Math.Round(50 + mimic.Level * 2.2, 1);
-            spell.DamageType = archetype switch
-            {
-                SupportArchetype.Albion => (int)eDamageType.Energy,
-                SupportArchetype.Midgard => (int)eDamageType.Spirit,
-                SupportArchetype.Hibernia => (int)eDamageType.Heat,
-                _ => (int)eDamageType.Energy
-            };
 
             return spell;
         }
@@ -335,7 +334,7 @@ namespace DOL.GS.Mimic
         {
             Spell spell = CloneBaseSpell($"mimic_support_root_{archetype}", () =>
             {
-                DbSpell db = CreateBaseSpell("Mimic Entrapment", EntrapmentSpellId + (int)archetype, eSpellType.Root, eSpellTarget.ENEMY, 1500, 12, 2.8, 15, 716);
+                DbSpell db = CreateBaseSpell("Mimic Entrapment", EntrapmentSpellId + (int)archetype, eSpellType.SpeedDecrease, eSpellTarget.ENEMY, 1500, 12, 2.8, 15, 716);
                 db.Description = "A binding spell that roots an enemy in place to protect the group.";
                 db.SpellGroup = 9155 + (int)archetype;
                 db.EffectGroup = db.SpellGroup;
@@ -343,7 +342,7 @@ namespace DOL.GS.Mimic
                 return new Spell(db, 50);
             });
 
-            spell.Level = (byte)Math.Clamp(mimic.Level, 1, byte.MaxValue);
+            spell.Level = (byte)Math.Clamp(mimic.Level, (byte)1, byte.MaxValue);
             spell.Duration = (int)Math.Clamp(10 + mimic.Level * 0.4, 12, 30);
             return spell;
         }
