@@ -1,5 +1,3 @@
-using DOL.GS.PlayerClass;
-
 namespace DOL.GS.Mimic.Controllers
 {
     internal static class MimicControllerFactory
@@ -9,7 +7,7 @@ namespace DOL.GS.Mimic.Controllers
             return mimic.Template.CharacterClass switch
             {
                 eCharacterClass.Warrior => new WarriorMimicController(brain, mimic),
-                _ => null
+                _ => StandardMimicController.TryCreate(brain, mimic)
             };
         }
     }

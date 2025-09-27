@@ -16,7 +16,8 @@ namespace DOL.GS.Mimic
         private const int CAMP_SCAN_INTERVAL = 2000;
 
         private static readonly Logger log = LoggerManager.Create(typeof(MimicBrain));
-        private static readonly SpellLine MobSpellLine = SkillBase.GetSpellLine(GlobalSpellsLines.Mob_Spells) ?? throw new InvalidOperationException("Missing Mob spell line.");
+        private static readonly SpellLine s_mobSpellLine = SkillBase.GetSpellLine(GlobalSpellsLines.Mob_Spells) ?? throw new InvalidOperationException("Missing Mob spell line.");
+        internal static SpellLine BehaviorSpellLine => s_mobSpellLine;
 
         private readonly MimicNPC _mimic;
         private readonly IMimicController? _controller;
@@ -725,7 +726,7 @@ namespace DOL.GS.Mimic
             if (LivingHasEffect(target, ccSpell))
                 return false;
 
-            if (_mimic.CastSpell(ccSpell, MobSpellLine, checkLos: false))
+            if (_mimic.CastSpell(ccSpell, s_mobSpellLine, checkLos: false))
             {
                 LogInstruction($"Applying crowd control to {target.Name}.");
                 return true;
