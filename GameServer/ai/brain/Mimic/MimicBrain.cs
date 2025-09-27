@@ -5,6 +5,7 @@ using DOL.Events;
 using DOL.GS;
 using DOL.GS.PacketHandler;
 using DOL.GS.Spells;
+using DOL.GS.Mimic.Controllers;
 using DOL.Logging;
 
 namespace DOL.GS.Mimic
@@ -18,6 +19,7 @@ namespace DOL.GS.Mimic
         private static readonly SpellLine MobSpellLine = SkillBase.GetSpellLine(GlobalSpellsLines.Mob_Spells) ?? throw new InvalidOperationException("Missing Mob spell line.");
 
         private readonly MimicNPC _mimic;
+        private readonly IMimicController? _controller;
         private readonly DOLEventHandler _ownerAttackedHandler;
         private bool _preventCombat;
         private bool _pvpMode;
@@ -50,11 +52,13 @@ namespace DOL.GS.Mimic
             GameEventMgr.AddHandler(owner, GameLivingEvent.AttackedByEnemy, _ownerAttackedHandler);
 
             AggressionState = eAggressionState.Defensive;
+            _controller = MimicControllerFactory.Create(this, mimic);
         }
 
         public override void Think()
         {
             EvaluateGroupCombatState();
+            _controller?.Think();
             HandleRoleBehaviors();
             UpdateCombatOrder();
             base.Think();
@@ -83,12 +87,15 @@ namespace DOL.GS.Mimic
                 AggressionState = eAggressionState.Defensive;
                 LogInstruction("PreventCombat disabled; returning to Defensive aggression.", force: true);
             }
+
+            _controller?.OnPreventCombatChanged(value);
         }
 
         public void SetPvPMode(bool value)
         {
             _pvpMode = value;
             LogInstruction($"PvP mode {(value ? "enabled" : "disabled")}; adjusting engagement rules.", force: true);
+            _controller?.OnPvPModeChanged(value);
         }
 
         public void SetGuardTarget(GameLiving? target)
@@ -98,11 +105,14 @@ namespace DOL.GS.Mimic
                 LogInstruction($"Guarding {target.Name}; prioritizing their safety.", force: true);
             else
                 LogInstruction("Guard target cleared; following owner normally.", force: true);
+
+            _controller?.OnGuardTargetChanged(target);
         }
 
         public void Dispose()
         {
             GameEventMgr.RemoveHandler(Owner, GameLivingEvent.AttackedByEnemy, _ownerAttackedHandler);
+            _controller?.Dispose();
         }
 
         public void OnRoleChanged(MimicRole role)
@@ -132,11 +142,15 @@ namespace DOL.GS.Mimic
             _lastScoutReport = null;
 
             LogInstruction($"Role updated to {MimicRoleInfo.ToDisplayString(role)}.", force: true);
+            _controller?.OnRoleChanged(role);
         }
 
         private void HandleRoleBehaviors()
         {
             if (!IsActive)
+                return;
+
+            if (_controller != null && _controller.TryHandleRoleBehaviors())
                 return;
 
             bool performedSupportAction = false;
@@ -244,6 +258,9 @@ namespace DOL.GS.Mimic
             _activeTarget = ValidateTarget(_activeTarget);
             _campTarget = ValidateTarget(_campTarget);
             _groupAssistTarget = ValidateTarget(_groupAssistTarget);
+
+            if (_controller != null && _controller.TryUpdateCombatOrder())
+                return;
 
             if (_activeTarget != null)
             {
@@ -530,6 +547,14 @@ namespace DOL.GS.Mimic
                 LogInstruction("No aggro remaining; disengaging.");
             }
         }
+
+        internal GameLiving? ActiveTargetInternal => _activeTarget;
+        internal bool GroupInCombat => _groupInCombat;
+        internal void EngageTargetInternal(GameLiving target) => EngageTarget(target);
+        internal void ClearCombatOrdersInternal(bool forceDisengage) => ClearCombatOrders(forceDisengage);
+        internal GameLiving? EvaluateCampTargetInternal() => EvaluateCampTarget();
+        internal GameLiving? ValidateTargetInternal(GameLiving? target) => ValidateTarget(target);
+        internal void LogInstructionInternal(string instruction, bool force = false) => LogInstruction(instruction, force);
 
         private void EngageTarget(GameLiving target)
         {
