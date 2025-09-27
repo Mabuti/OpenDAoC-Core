@@ -47,10 +47,10 @@
         <PackageReference Include="Microsoft.AspNetCore.SpaServices.Extensions" Version="9.0.5" />
         <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.5" />
         <ProjectReference Include="..\GameServer\GameServer.csproj" Name="GameServer" />
-        <Content Include=".\config\serverconfig.xml">
-            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        <Content Include="config\serverconfig.example.xml">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <TargetPath>config/serverconfig.xml</TargetPath>
         </Content>
-        <Content Include="config\serverconfig.example.xml" />
     </ItemGroup>
     <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 </Project>
