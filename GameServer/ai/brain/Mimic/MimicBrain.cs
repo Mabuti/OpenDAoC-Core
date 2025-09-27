@@ -554,7 +554,7 @@ namespace DOL.GS.Mimic
 
         private static bool IsCrowdControlSpell(Spell spell)
         {
-            return spell.SpellType is eSpellType.Mesmerize or eSpellType.Root or eSpellType.Stun or eSpellType.DamageSpeedDecrease;
+            return spell.SpellType is eSpellType.Mesmerize or eSpellType.SpeedDecrease or eSpellType.Stun or eSpellType.DamageSpeedDecrease;
         }
 
         private GameLiving? FindCrowdControlTarget(Spell spell)

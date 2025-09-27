@@ -52,7 +52,7 @@ namespace DOL.GS.Commands
             return null;
         }
 
-        private static void DisplayRoleSummaries(GameClient client)
+        private void DisplayRoleSummaries(GameClient client)
         {
             foreach (string summary in MimicRoleInfo.GetRoleSummaries())
                 DisplayMessage(client, summary);
