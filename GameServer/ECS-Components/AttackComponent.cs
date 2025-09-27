@@ -705,6 +705,9 @@ namespace DOL.GS
             }
 
             AttackState = true;
+
+            if (owner is GamePlayer playerOwner)
+                playerOwner.IsInAttackMode = true;
             return true;
         }
 
@@ -781,6 +784,8 @@ namespace DOL.GS
             attackAction.OnStopAttack();
             bool oldAttackState = AttackState;
             AttackState = false;
+            if (owner is GamePlayer playerOwner)
+                playerOwner.IsInAttackMode = false;
             owner.CancelEngageEffect();
             owner.styleComponent.NextCombatStyle = null;
             owner.styleComponent.NextCombatBackupStyle = null;

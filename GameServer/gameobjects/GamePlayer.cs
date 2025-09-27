@@ -128,7 +128,17 @@ namespace DOL.GS
         private ArrayList m_mlSteps = new ArrayList();
 
         private bool m_gmStealthed = false;
+        private bool _isInAttackMode;
         public bool GMStealthed { get { return m_gmStealthed; } set { m_gmStealthed = value; } }
+
+        /// <summary>
+        /// Tracks whether the player has toggled attack mode on the client.
+        /// </summary>
+        public bool IsInAttackMode
+        {
+            get => _isInAttackMode;
+            internal set => _isInAttackMode = value;
+        }
 
         /// <summary>
         /// Can this living accept any item regardless of tradable or droppable?

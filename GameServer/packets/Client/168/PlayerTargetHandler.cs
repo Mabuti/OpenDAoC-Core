@@ -15,10 +15,10 @@ namespace DOL.GS.PacketHandler.Client.v168
              * 0x0001 = players attack mode bit (not targets!)
              */
 
-            ChangeTarget(client.Player, targetId, (flags & (0x4000 | 0x2000)) != 0, (flags & 0x8000) != 0);
+            ChangeTarget(client.Player, targetId, (flags & (0x4000 | 0x2000)) != 0, (flags & 0x8000) != 0, (flags & 0x0001) != 0);
         }
 
-        private static void ChangeTarget(GamePlayer actionSource, ushort newTargetId, bool targetInView, bool examineTarget)
+        private static void ChangeTarget(GamePlayer actionSource, ushort newTargetId, bool targetInView, bool examineTarget, bool isAttackMode)
         {
             GameObject target = actionSource.CurrentRegion.GetObject(newTargetId);
 
@@ -30,6 +30,7 @@ namespace DOL.GS.PacketHandler.Client.v168
 
             actionSource.TargetObject = target;
             actionSource.TargetInView = targetInView;
+            actionSource.IsInAttackMode = isAttackMode;
 
             if (target != null)
             {
