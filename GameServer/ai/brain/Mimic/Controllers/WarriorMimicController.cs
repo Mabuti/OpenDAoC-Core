@@ -399,7 +399,7 @@ namespace DOL.GS.Mimic.Controllers
                 case WarriorTankState.Pull:
                     if (boss != null)
                     {
-                        bool bossFacingUs = boss.TargetObject == _mimic || boss.attackComponent?.AttackTarget == _mimic;
+                        bool bossFacingUs = boss.TargetObject == _mimic || boss.attackComponent?.attackAction?.LastAttackData?.Target == _mimic;
 
                         if (bossFacingUs)
                         {
@@ -767,7 +767,7 @@ namespace DOL.GS.Mimic.Controllers
                     _bb.CCPlan.MezActive = true;
                 }
 
-                if (EffectListService.GetEffectOnTarget(enemy, eEffect.Root) != null)
+                if (EffectListService.GetEffectOnTarget(enemy, eEffect.Snare) != null)
                 {
                     _bb.CCPlan.RootTargets.Add(enemy);
                     _bb.CCPlan.MezActive = true;
@@ -823,11 +823,23 @@ namespace DOL.GS.Mimic.Controllers
 
         private void TryExecuteAbility(Ability ability)
         {
-            if (_mimic is not GamePlayer player)
-                return;
-
             IAbilityActionHandler? handler = SkillBase.GetAbilityActionHandler(ability.KeyName);
-            handler?.Execute(ability, player);
+
+            if (handler is SpellCastingAbilityHandler spellHandler)
+            {
+                if (spellHandler.CheckPreconditions(_mimic, spellHandler.Preconditions))
+                    return;
+
+                Spell? spell = SkillBase.GetSpellByID(spellHandler.SpellID);
+                SpellLine? line = SkillBase.GetSpellLine(GlobalSpellsLines.Character_Abilities);
+
+                if (spell != null && line != null)
+                    _mimic.CastSpell(spell, line, false);
+
+                return;
+            }
+
+            handler?.Execute(ability, _mimic.Owner);
         }
 
         private bool IsGuardInImmediateDanger()
