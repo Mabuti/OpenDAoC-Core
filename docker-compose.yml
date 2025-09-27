@@ -40,7 +40,7 @@ services:
       - opendaoc-network
 
   gameserver:
-    image: localhost:5000/opendaoc-singleplayerbots
+    image: localhost:5000/opendaoc-singleplayerbots:latest
     container_name: opendaoc-server-spb
     stdin_open: true
     tty: true
