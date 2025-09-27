@@ -38,6 +38,7 @@ namespace DOL.GS.Mimic
         {
             Role = role;
             _brain.OnRoleChanged(role);
+            MimicLoadoutBuilder.Configure(this, role);
         }
 
         public void SetPreventCombat(bool value)

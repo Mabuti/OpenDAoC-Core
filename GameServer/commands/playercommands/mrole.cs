@@ -21,6 +21,7 @@ namespace DOL.GS.Commands
             {
                 DisplaySyntax(client);
                 DisplayMessage(client, $"Available roles: {MimicRoleInfo.GetSyntax()}.");
+                DisplayRoleSummaries(client);
                 return;
             }
 
@@ -28,6 +29,7 @@ namespace DOL.GS.Commands
             if (!MimicRoleInfo.TryParse(requested, out MimicRole role))
             {
                 DisplayMessage(client, $"Unknown role. Available roles: {MimicRoleInfo.GetSyntax()}.");
+                DisplayRoleSummaries(client);
                 return;
             }
 
@@ -48,6 +50,14 @@ namespace DOL.GS.Commands
                 return mimic;
 
             return null;
+        }
+
+        private static void DisplayRoleSummaries(GameClient client)
+        {
+            foreach (string summary in MimicRoleInfo.GetRoleSummaries())
+                DisplayMessage(client, summary);
+
+            DisplayMessage(client, "Combine roles with commas, spaces, or slashes (e.g. /mrole healer support).");
         }
 
     }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
 namespace DOL.GS.Mimic
 {
@@ -21,35 +22,79 @@ namespace DOL.GS.Mimic
 
     public static class MimicRoleInfo
     {
-        private static readonly (string Alias, MimicRole Role)[] _aliases =
+        private sealed record RoleDefinition(MimicRole Role, string Command, string Display, string Description, string[] Aliases)
         {
-            ("leader", MimicRole.Leader),
-            ("puller", MimicRole.Puller),
-            ("tank", MimicRole.Tank),
-            ("cc", MimicRole.CrowdControl),
-            ("crowdcontrol", MimicRole.CrowdControl),
-            ("assist", MimicRole.Assist),
-            ("healer", MimicRole.Healer),
-            ("heal", MimicRole.Healer),
-            ("support", MimicRole.Support),
-            ("dps", MimicRole.DamageDealer),
-            ("damage", MimicRole.DamageDealer),
-            ("damagedealer", MimicRole.DamageDealer),
-            ("scout", MimicRole.Scout)
+            public IEnumerable<string> GetAliases()
+            {
+                yield return Command;
+                yield return Display;
+                yield return Display.Replace(" ", string.Empty, StringComparison.Ordinal);
+
+                foreach (string alias in Aliases)
+                    yield return alias;
+            }
+        }
+
+        private static readonly RoleDefinition[] _definitions =
+        {
+            new(
+                MimicRole.Leader,
+                "leader",
+                "Leader",
+                "Keeps mimics in formation and initiates combat on camp threats when no orders are given.",
+                new[] { "lead", "captain", "commander" }),
+            new(
+                MimicRole.Puller,
+                "puller",
+                "Puller",
+                "Ranges ahead to tag nearby enemies for the group when it is safe to do so.",
+                new[] { "pull", "scoutpull", "pullbot" }),
+            new(
+                MimicRole.Tank,
+                "tank",
+                "Tank",
+                "Guards the owner, soaks aggro, and always rushes to defend allies under attack.",
+                new[] { "mt", "guard", "protector" }),
+            new(
+                MimicRole.CrowdControl,
+                "cc",
+                "Crowd Control",
+                "Uses disabling spells to lock down extra enemies and will engage camp targets to control them.",
+                new[] { "crowdcontrol", "crowd", "mez", "root", "control" }),
+            new(
+                MimicRole.Assist,
+                "assist",
+                "Assist",
+                "Follows the owner's target calls for focused damage alongside other attackers.",
+                new[] { "assisttrain", "ma", "assistdps" }),
+            new(
+                MimicRole.Healer,
+                "healer",
+                "Healer",
+                "Prioritizes restoring health and only commits to combat when the group is threatened.",
+                new[] { "heal", "heals", "mainhealer", "supportheals" }),
+            new(
+                MimicRole.Support,
+                "support",
+                "Support",
+                "Provides buffs and utility while reacting to danger with defensive actions.",
+                new[] { "buffer", "utility", "supportbot" }),
+            new(
+                MimicRole.DamageDealer,
+                "dps",
+                "Damage Dealer",
+                "Commits to aggressive damage against the owner's targets.",
+                new[] { "damage", "damagedealer", "dealer", "dd" }),
+            new(
+                MimicRole.Scout,
+                "scout",
+                "Scout",
+                "Patrols for incoming enemies and reports threats while assisting with pulls when needed.",
+                new[] { "spotter", "recon", "lookout" })
         };
 
-        private static readonly MimicRole[] _flagOrder =
-        {
-            MimicRole.Leader,
-            MimicRole.Puller,
-            MimicRole.Tank,
-            MimicRole.CrowdControl,
-            MimicRole.Assist,
-            MimicRole.Healer,
-            MimicRole.Support,
-            MimicRole.DamageDealer,
-            MimicRole.Scout
-        };
+        private static readonly Dictionary<string, MimicRole> _aliasMap = BuildAliasMap();
+        private static readonly char[] _roleSeparators = { ',', '+', '|', '/', '\\', ' ' };
 
         public static bool TryParse(string value, out MimicRole role)
         {
@@ -58,35 +103,35 @@ namespace DOL.GS.Mimic
             if (string.IsNullOrWhiteSpace(value))
                 return false;
 
-            string[] tokens = value.Split(new[] { ',', '+', '|', '/', '\\', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            string[] tokens = value.Split(_roleSeparators, StringSplitOptions.RemoveEmptyEntries);
 
             foreach (string token in tokens)
             {
-                string normalized = token.Trim().ToLowerInvariant();
-                MimicRole? match = null;
+                string normalized = NormalizeToken(token);
 
-                foreach ((string Alias, MimicRole Role) entry in _aliases)
+                if (string.IsNullOrEmpty(normalized))
+                    continue;
+
+                if (_aliasMap.TryGetValue(normalized, out MimicRole match))
                 {
-                    if (entry.Alias.Equals(normalized, StringComparison.Ordinal))
-                    {
-                        match = entry.Role;
-                        break;
-                    }
+                    role |= match;
+                    continue;
                 }
 
-                if (match == null)
+                if (Enum.TryParse(token, true, out MimicRole parsed) && parsed != MimicRole.None)
                 {
-                    if (Enum.TryParse(normalized, true, out MimicRole parsed) && parsed != MimicRole.None)
-                        match = parsed;
+                    role |= parsed;
+                    continue;
                 }
 
-                if (match == null)
+                if (Enum.TryParse(normalized, true, out parsed) && parsed != MimicRole.None)
                 {
-                    role = MimicRole.None;
-                    return false;
+                    role |= parsed;
+                    continue;
                 }
 
-                role |= match.Value;
+                role = MimicRole.None;
+                return false;
             }
 
             return role != MimicRole.None;
@@ -94,9 +139,7 @@ namespace DOL.GS.Mimic
 
         public static string GetSyntax()
         {
-            return string.Join('|', _flagOrder
-                .Where(flag => flag != MimicRole.None)
-                .Select(ToCommandName));
+            return string.Join('|', _definitions.Select(def => def.Command));
         }
 
         public static string ToDisplayString(MimicRole role)
@@ -106,50 +149,68 @@ namespace DOL.GS.Mimic
 
             List<string> parts = new();
 
-            foreach (MimicRole flag in _flagOrder)
+            foreach (RoleDefinition definition in _definitions)
             {
-                if (flag == MimicRole.None)
-                    continue;
-
-                if (role.HasFlag(flag))
-                    parts.Add(ToDisplayName(flag));
+                if (role.HasFlag(definition.Role))
+                    parts.Add(definition.Display);
             }
 
             return parts.Count > 0 ? string.Join(", ", parts) : "None";
         }
 
-        private static string ToDisplayName(MimicRole role)
+        public static IEnumerable<string> GetRoleSummaries()
         {
-            return role switch
+            foreach (RoleDefinition definition in _definitions)
             {
-                MimicRole.Leader => "Leader",
-                MimicRole.Puller => "Puller",
-                MimicRole.Tank => "Tank",
-                MimicRole.CrowdControl => "Crowd Control",
-                MimicRole.Assist => "Assist",
-                MimicRole.Healer => "Healer",
-                MimicRole.Support => "Support",
-                MimicRole.DamageDealer => "Damage Dealer",
-                MimicRole.Scout => "Scout",
-                _ => role.ToString()
-            };
+                yield return $"{definition.Display} ({definition.Command}): {definition.Description}";
+            }
         }
 
-        private static string ToCommandName(MimicRole role)
+        private static Dictionary<string, MimicRole> BuildAliasMap()
         {
-            return role switch
+            Dictionary<string, MimicRole> map = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (RoleDefinition definition in _definitions)
             {
-                MimicRole.Leader => "leader",
-                MimicRole.Puller => "puller",
-                MimicRole.Tank => "tank",
-                MimicRole.CrowdControl => "cc",
-                MimicRole.Assist => "assist",
-                MimicRole.Healer => "healer",
-                MimicRole.Support => "support",
-                MimicRole.DamageDealer => "dps",
-                MimicRole.Scout => "scout",
-                _ => role.ToString().ToLowerInvariant()
-            };
+                foreach (string alias in definition.GetAliases())
+                {
+                    string normalized = NormalizeToken(alias);
+
+                    if (string.IsNullOrEmpty(normalized))
+                        continue;
+
+                    map[normalized] = definition.Role;
+                }
+
+                foreach (string alias in definition.Aliases)
+                {
+                    string collapsed = alias.Replace(" ", string.Empty, StringComparison.Ordinal);
+                    string normalized = NormalizeToken(collapsed);
+
+                    if (string.IsNullOrEmpty(normalized))
+                        continue;
+
+                    map[normalized] = definition.Role;
+                }
+            }
+
+            return map;
+        }
+
+        private static string NormalizeToken(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+                return string.Empty;
+
+            StringBuilder builder = new(token.Length);
+
+            foreach (char c in token)
+            {
+                if (char.IsLetterOrDigit(c))
+                    builder.Append(char.ToLowerInvariant(c));
+            }
+
+            return builder.ToString();
         }
     }
 }
