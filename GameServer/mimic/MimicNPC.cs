@@ -8,6 +8,9 @@ namespace DOL.GS.Mimic
     {
         private readonly MimicTemplate _template;
         private readonly MimicBrain _brain;
+        private byte _lastHealthPercent = byte.MaxValue;
+        private byte _lastManaPercent = byte.MaxValue;
+        private byte _lastEndurancePercent = byte.MaxValue;
 
         public MimicRole Role { get; private set; }
         public bool PreventCombat { get; private set; }
@@ -73,6 +76,7 @@ namespace DOL.GS.Mimic
             if (result)
             {
                 Follow(Owner);
+                UpdateGroupStatus(force: true);
             }
 
             return result;
@@ -90,6 +94,62 @@ namespace DOL.GS.Mimic
                 return;
 
             Follow(target, 150, 350);
+        }
+
+        public override int ChangeHealth(GameObject changeSource, eHealthChangeType healthChangeType, int changeAmount)
+        {
+            int changed = base.ChangeHealth(changeSource, healthChangeType, changeAmount);
+
+            if (changed != 0)
+                UpdateGroupStatus();
+
+            return changed;
+        }
+
+        public override int ChangeMana(GameObject changeSource, eManaChangeType manaChangeType, int changeAmount)
+        {
+            int changed = base.ChangeMana(changeSource, manaChangeType, changeAmount);
+
+            if (changed != 0)
+                UpdateGroupStatus();
+
+            return changed;
+        }
+
+        public override int ChangeEndurance(GameObject changeSource, eEnduranceChangeType enduranceChangeType, int changeAmount)
+        {
+            int changed = base.ChangeEndurance(changeSource, enduranceChangeType, changeAmount);
+
+            if (changed != 0)
+                UpdateGroupStatus();
+
+            return changed;
+        }
+
+        private void UpdateGroupStatus(bool force = false)
+        {
+            Group? group = Group;
+
+            if (group == null)
+                return;
+
+            byte healthPercent = HealthPercent;
+            byte manaPercent = ManaPercent;
+            byte endurancePercent = EndurancePercent;
+
+            if (!force &&
+                healthPercent == _lastHealthPercent &&
+                manaPercent == _lastManaPercent &&
+                endurancePercent == _lastEndurancePercent)
+            {
+                return;
+            }
+
+            _lastHealthPercent = healthPercent;
+            _lastManaPercent = manaPercent;
+            _lastEndurancePercent = endurancePercent;
+
+            group.UpdateMember(this, updateIcons: false, updateOtherRegions: false);
         }
     }
 }

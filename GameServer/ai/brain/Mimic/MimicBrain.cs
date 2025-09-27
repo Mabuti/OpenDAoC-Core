@@ -40,6 +40,8 @@ namespace DOL.GS.Mimic
         private long _nextCrowdControlCheck;
         private long _nextScoutPulse;
         private string? _lastScoutReport;
+        private bool _groupInCombat;
+        private GameLiving? _groupAssistTarget;
 
         public MimicBrain(GameLiving owner, MimicNPC mimic) : base(owner)
         {
@@ -52,6 +54,7 @@ namespace DOL.GS.Mimic
 
         public override void Think()
         {
+            EvaluateGroupCombatState();
             HandleRoleBehaviors();
             UpdateCombatOrder();
             base.Think();
@@ -179,6 +182,9 @@ namespace DOL.GS.Mimic
             if (_mimic.IsAttacking)
                 return;
 
+            if (_groupInCombat)
+                return;
+
             MimicCampSettings? camp = _mimic.GroupState.Camp;
 
             if (camp != null)
@@ -206,23 +212,13 @@ namespace DOL.GS.Mimic
 
                 if (!_isLeader && leader != null && leader != _mimic && leader.IsAlive)
                 {
-                    if (!_mimic.IsWithinRadius(leader, 220))
-                    {
-                        WalkState = eWalkState.Follow;
-                        _mimic.Follow(leader, 150, 280);
-                        LogInstruction($"Maintaining formation with leader {leader.Name}.");
-                    }
-
+                    EnsureFollowTarget(leader, 150, 280, $"Maintaining formation with leader {leader.Name}.");
                     return;
                 }
             }
 
-            if (Owner != null && !_mimic.IsWithinRadius(Owner, 350))
-            {
-                WalkState = eWalkState.Follow;
-                _mimic.Follow(Owner, 150, 350);
-                LogInstruction($"Following owner {Owner.Name}.");
-            }
+            if (Owner != null)
+                EnsureFollowTarget(Owner, 150, 350, $"Following owner {Owner.Name}.");
         }
 
         private void UpdateCombatOrder()
@@ -247,6 +243,7 @@ namespace DOL.GS.Mimic
 
             _activeTarget = ValidateTarget(_activeTarget);
             _campTarget = ValidateTarget(_campTarget);
+            _groupAssistTarget = ValidateTarget(_groupAssistTarget);
 
             if (_activeTarget != null)
             {
@@ -282,25 +279,178 @@ namespace DOL.GS.Mimic
 
             GameLiving? ownerTarget = ValidateTarget(owner.TargetObject as GameLiving);
 
-            if (ownerTarget == null)
+            if (ownerTarget != null)
             {
-                ClearCombatOrders(forceDisengage: false);
-                LogInstruction("Owner has no valid target; holding position.");
+                if (!ShouldAssistOwner(owner, ownerTarget))
+                {
+                    if (_groupAssistTarget != null)
+                    {
+                        EngageTarget(_groupAssistTarget);
+                        LogInstruction($"Assisting group on {_groupAssistTarget.Name}.");
+                    }
+                    else if (!_groupInCombat && !HasAggro)
+                    {
+                        ClearCombatOrders(forceDisengage: false);
+                        LogInstruction("Owner not aggressive; waiting for engagement signal.");
+                    }
+
+                    return;
+                }
+
+                EngageTarget(ownerTarget);
                 return;
             }
 
-            if (!ShouldAssistOwner(owner, ownerTarget))
+            if (_groupAssistTarget != null)
             {
-                if (!HasAggro)
+                EngageTarget(_groupAssistTarget);
+                LogInstruction($"Assisting group on {_groupAssistTarget.Name}.");
+                return;
+            }
+
+            if (_groupInCombat)
+            {
+                GameLiving? aggroTarget = HasAggro ? GetHighestAggroTarget() : null;
+
+                if (aggroTarget != null)
                 {
-                    ClearCombatOrders(forceDisengage: false);
-                    LogInstruction("Owner not aggressive; waiting for engagement signal.");
+                    EngageTarget(aggroTarget);
+                    LogInstruction($"Re-engaging {aggroTarget.Name} from aggro list.");
                 }
 
                 return;
             }
 
-            EngageTarget(ownerTarget);
+            ClearCombatOrders(forceDisengage: false);
+            LogInstruction("Owner has no valid target; holding position.");
+        }
+
+        private void EnsureFollowTarget(GameLiving target, ushort minDistance, ushort maxDistance, string instruction)
+        {
+            if (WalkState != eWalkState.Follow || _mimic.FollowTarget != target || !_mimic.IsWithinRadius(target, maxDistance))
+            {
+                WalkState = eWalkState.Follow;
+                _mimic.Follow(target, minDistance, maxDistance);
+                LogInstruction(instruction);
+            }
+        }
+
+        private void EvaluateGroupCombatState()
+        {
+            _groupAssistTarget = null;
+            _groupInCombat = TryGetGroupCombatState(out GameLiving? assistTarget);
+            _groupAssistTarget = assistTarget;
+        }
+
+        private bool TryGetGroupCombatState(out GameLiving? assistTarget)
+        {
+            assistTarget = null;
+
+            GamePlayer ownerPlayer = _mimic.Owner;
+            Group? group = ownerPlayer.Group;
+
+            if (group == null)
+            {
+                bool engaged = IsGroupMemberEngaged(ownerPlayer);
+
+                if (engaged)
+                    assistTarget = GetGroupMemberTarget(ownerPlayer);
+
+                return engaged;
+            }
+
+            GameLiving? fallbackTarget = null;
+            bool inCombat = false;
+            List<GameLiving> members = group.GetMembersInTheGroup();
+
+            try
+            {
+                foreach (GameLiving member in members)
+                {
+                    if (member == null || !member.IsAlive)
+                        continue;
+
+                    if (!IsGroupMemberEngaged(member))
+                        continue;
+
+                    inCombat = true;
+
+                    GameLiving? memberTarget = GetGroupMemberTarget(member);
+
+                    if (member == ownerPlayer && memberTarget != null)
+                    {
+                        assistTarget = memberTarget;
+                        return true;
+                    }
+
+                    if (member != _mimic && memberTarget != null && fallbackTarget == null)
+                        fallbackTarget = memberTarget;
+                }
+            }
+            finally
+            {
+                members.Clear();
+            }
+
+            assistTarget = fallbackTarget;
+            return inCombat;
+        }
+
+        private static bool IsGroupMemberEngaged(GameLiving member)
+        {
+            if (!member.IsAlive)
+                return false;
+
+            if (member.IsAttacking)
+                return true;
+
+            if (member.attackComponent?.AttackState == true)
+                return true;
+
+            if (member.InCombat)
+                return true;
+
+            ISpellHandler? spell = member.CurrentSpellHandler;
+
+            return spell != null && spell.IsInCastingPhase && spell.Spell.Target == eSpellTarget.ENEMY;
+        }
+
+        private GameLiving? GetGroupMemberTarget(GameLiving member)
+        {
+            GameLiving? target = ValidateTarget(member.TargetObject as GameLiving);
+
+            if (target != null)
+                return target;
+
+            AttackAction? attackAction = member.attackComponent?.attackAction;
+
+            if (attackAction?.LastAttackData?.Target is GameLiving lastTarget)
+            {
+                target = ValidateTarget(lastTarget);
+
+                if (target != null)
+                    return target;
+            }
+
+            ISpellHandler? spell = member.CurrentSpellHandler;
+
+            if (spell != null && spell.Spell.Target == eSpellTarget.ENEMY)
+                return ValidateTarget(spell.Target);
+
+            return null;
+        }
+
+        private GameLiving? GetHighestAggroTarget()
+        {
+            foreach (StandardMobBrain.OrderedAggroListElement entry in GetOrderedAggroList())
+            {
+                GameLiving? target = ValidateTarget(entry.Living);
+
+                if (target != null)
+                    return target;
+            }
+
+            return null;
         }
 
         private GameLiving? ValidateTarget(GameLiving? target)
