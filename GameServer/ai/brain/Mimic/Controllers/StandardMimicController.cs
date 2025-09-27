@@ -203,7 +203,7 @@ namespace DOL.GS.Mimic.Controllers
             _emergencyHealSpell ??= _mimic.Spells.FirstOrDefault(s => s.SpellType == eSpellType.Heal && s.CastTime == 0);
             _healOverTimeSpell ??= _mimic.Spells.FirstOrDefault(s => s.SpellType == eSpellType.HealOverTime);
             _damageSpell ??= _mimic.Spells.FirstOrDefault(s => s.SpellType == eSpellType.DirectDamage);
-            _crowdControlSpell ??= _mimic.Spells.FirstOrDefault(s => s.SpellType is eSpellType.Mesmerize or eSpellType.SpeedDecrease or eSpellType.Snare or eSpellType.Stun);
+            _crowdControlSpell ??= _mimic.Spells.FirstOrDefault(s => s.SpellType is eSpellType.Mesmerize or eSpellType.SpeedDecrease or eSpellType.Stun);
             _diseaseSpell ??= _mimic.Spells.FirstOrDefault(s => s.SpellType == eSpellType.Disease);
             _nearsightSpell ??= _mimic.Spells.FirstOrDefault(s => s.SpellType == eSpellType.Nearsight);
             _strengthBuffSpell ??= _mimic.Spells.FirstOrDefault(s => s.SpellType == eSpellType.StrengthConstitutionBuff);
@@ -525,7 +525,7 @@ namespace DOL.GS.Mimic.Controllers
                 if (threat.IsCasting)
                     return threat;
 
-                if (threat is GamePlayer player && player.ActiveWeaponSlot == (int)eActiveWeaponSlot.Distance)
+                if (threat is GamePlayer player && player.ActiveWeaponSlot == eActiveWeaponSlot.Distance)
                     return threat;
             }
 
