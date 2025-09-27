@@ -140,7 +140,6 @@ namespace DOL.GS.Mimic
             };
 
             mimic.AssignRole(template.DefaultRole);
-            MimicLoadoutBuilder.Configure(mimic, template.DefaultRole);
 
             if (!mimic.AddToWorld())
                 throw new InvalidOperationException("Unable to add mimic to world.");
