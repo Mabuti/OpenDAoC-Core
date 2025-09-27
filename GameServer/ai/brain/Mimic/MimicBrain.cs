@@ -316,8 +316,15 @@ namespace DOL.GS.Mimic
 
         private static bool OwnerIsAggressive(GameLiving owner)
         {
-            if (owner.IsAttacking)
+            if (owner is GamePlayer player)
+            {
+                if (player.IsInAttackMode)
+                    return true;
+            }
+            else if (owner.IsAttacking)
+            {
                 return true;
+            }
 
             ISpellHandler? spellHandler = owner.CurrentSpellHandler;
             return spellHandler != null && spellHandler.Spell.Target == eSpellTarget.ENEMY;
