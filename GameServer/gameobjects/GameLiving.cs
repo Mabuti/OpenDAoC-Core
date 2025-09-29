@@ -10,6 +10,7 @@ using DOL.Database;
 using DOL.Events;
 using DOL.GS.Effects;
 using DOL.GS.Keeps;
+using DOL.GS.Mimic;
 using DOL.GS.PacketHandler;
 using DOL.GS.PropertyCalc;
 using DOL.GS.RealmAbilities;
@@ -1846,13 +1847,16 @@ namespace DOL.GS
 		/// </summary>
 		/// <param name="xpGainer">the xp gaining object</param>
 		/// <param name="damageAmount">the amount of damage, float because for groups it can be split</param>
-		public virtual void AddXPGainer(GameLiving xpGainer, double damageAmount)
-		{
-			lock (XpGainersLock)
-			{
-				m_xpGainers[xpGainer] = m_xpGainers.TryGetValue(xpGainer, out double value) ? value + damageAmount : damageAmount;
-			}
-		}
+                public virtual void AddXPGainer(GameLiving xpGainer, double damageAmount)
+                {
+                        if (xpGainer is MimicNPC mimic && mimic.Owner is GamePlayer mimicOwner)
+                                xpGainer = mimicOwner;
+
+                        lock (XpGainersLock)
+                        {
+                                m_xpGainers[xpGainer] = m_xpGainers.TryGetValue(xpGainer, out double value) ? value + damageAmount : damageAmount;
+                        }
+                }
 
 		// Temporary locks to help a little with the race condition mess around health, endurance, and power.
 		// This is mainly helpful for concurrent heals / regen ticks. Attacks don't do damage via `ChangeHealth`.
