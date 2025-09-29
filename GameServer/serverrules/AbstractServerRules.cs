@@ -7,6 +7,7 @@ using DOL.Database;
 using DOL.Events;
 using DOL.GS.Housing;
 using DOL.GS.Keeps;
+using DOL.GS.Mimic;
 using DOL.GS.PacketHandler;
 using DOL.GS.ServerProperties;
 using DOL.Language;
@@ -1121,12 +1122,24 @@ namespace DOL.GS.ServerRules
                 {
                     totalDamage += pair.Value; // Should be done before excluding players.
 
+                    GameLiving conLiving = pair.Key;
+                    GamePlayer player = pair.Key as GamePlayer;
+
+                    if (pair.Key is MimicNPC mimic)
+                    {
+                        player = mimic.Owner;
+                        if (player == null)
+                            continue;
+
+                        conLiving = player;
+                    }
+
                     // If the killed NPC is gray to any of the entities, or if a guard is involved, don't give any XP, drop any loot, change faction relations, etc.
-                    if (pair.Key.IsObjectGreyCon(killedNpc) || pair.Key is GameGuard)
+                    if (conLiving.IsObjectGreyCon(killedNpc) || conLiving is GameGuard)
                         return false;
 
                     // We only care about players in range.
-                    if (pair.Key is not GamePlayer player || player.ObjectState is not GameObject.eObjectState.Active || !player.IsWithinRadius(killedNpc, WorldMgr.MAX_EXPFORKILL_DISTANCE))
+                    if (player == null || player.ObjectState is not GameObject.eObjectState.Active || !player.IsWithinRadius(killedNpc, WorldMgr.MAX_EXPFORKILL_DISTANCE))
                         continue;
 
                     ProcessDamage(player, pair.Value, player, mostDamagingPlayer, playerCountAndDamage);
