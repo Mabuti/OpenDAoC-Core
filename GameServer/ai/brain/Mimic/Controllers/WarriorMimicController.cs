@@ -1,14 +1,15 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using DOL.AI.Brain;
+using DOL.GS;
 using DOL.GS.Effects;
 using DOL.GS.SkillHandler;
 using DOL.GS.Spells;
 
 namespace DOL.GS.Mimic.Controllers
 {
-    internal sealed class WarriorMimicController : IMimicController
+    internal sealed class WarriorMimicController : MimicControllerBase
     {
         private enum WarriorTankState
         {
@@ -109,12 +110,8 @@ namespace DOL.GS.Mimic.Controllers
             eCharacterClass.Enchanter
         };
 
-        private readonly MimicBrain _brain;
-        private readonly MimicNPC _mimic;
         private readonly WarriorBlackboard _bb = new();
         private WarriorTankState _state = WarriorTankState.OutOfCombatPrep;
-        private bool _enabled;
-        private bool _disposed;
         private long _stateEnteredAt;
         private long _establishThreatUntil;
         private long _nextGuardEvaluation;
@@ -126,51 +123,66 @@ namespace DOL.GS.Mimic.Controllers
         private GameLiving? _assignedGuardTarget;
 
         public WarriorMimicController(MimicBrain brain, MimicNPC mimic)
+            : base(brain, mimic)
         {
-            _brain = brain;
-            _mimic = mimic;
-            _lastHealthPercent = mimic.HealthPercent;
+            _lastHealthPercent = _mimic.HealthPercent;
             EnsureDefensiveAbilities();
         }
 
-        public void Dispose()
+        public override void Dispose()
         {
-            _disposed = true;
+            if (IsDisposed)
+                return;
+
+            base.Dispose();
         }
 
-        public void OnRoleChanged(MimicRole role)
+        public override void OnRoleChanged(MimicRole role)
         {
             bool shouldEnable = role.HasFlag(MimicRole.Tank);
 
-            if (_enabled == shouldEnable)
+            if (IsEnabled == shouldEnable)
+            {
+                if (!shouldEnable)
+                    _brain.ClearCombatOrdersInternal(true);
+                return;
+            }
+
+            base.OnRoleChanged(shouldEnable ? role : MimicRole.None);
+
+            if (IsDisposed)
                 return;
 
-            _enabled = shouldEnable;
             _state = WarriorTankState.OutOfCombatPrep;
             _stateEnteredAt = GameLoop.GameLoopTime;
 
-            if (!_enabled)
+            if (!shouldEnable)
+            {
                 _brain.ClearCombatOrdersInternal(true);
+                return;
+            }
+
+            EnsureDefensiveAbilities();
         }
 
-        public void OnPreventCombatChanged(bool value)
+        public override void OnPreventCombatChanged(bool value)
         {
             if (value)
                 _state = WarriorTankState.OutOfCombatPrep;
         }
 
-        public void OnPvPModeChanged(bool value)
+        public override void OnPvPModeChanged(bool value)
         {
         }
 
-        public void OnGuardTargetChanged(GameLiving? target)
+        public override void OnGuardTargetChanged(GameLiving? target)
         {
             _assignedGuardTarget = target;
         }
 
-        public void Think()
+        public override void Think()
         {
-            if (!_enabled || _disposed)
+            if (!CanOperate)
                 return;
 
             UpdateBlackboard();
@@ -178,18 +190,18 @@ namespace DOL.GS.Mimic.Controllers
             SampleIncomingDamage();
         }
 
-        public bool TryHandleRoleBehaviors()
+        public override bool TryHandleRoleBehaviors()
         {
-            if (!_enabled || _disposed)
+            if (!CanOperate)
                 return false;
 
             ExecuteBehaviorTree();
             return true;
         }
 
-        public bool TryUpdateCombatOrder()
+        public override bool TryUpdateCombatOrder()
         {
-            if (!_enabled || _disposed)
+            if (!CanOperate)
                 return false;
 
             UpdateStateMachine();
@@ -367,7 +379,7 @@ namespace DOL.GS.Mimic.Controllers
             if (_bb.EnemyMeleeOnAllies.Count > 0)
                 return;
 
-            _brain.LogInstructionInternal($"Stabilized – ready to open stun on {focus.Name} when assist is called.");
+            _brain.LogInstructionInternal($"Stabilized Ã¢â‚¬â€œ ready to open stun on {focus.Name} when assist is called.");
         }
 
         private void Fallback()
@@ -387,65 +399,75 @@ namespace DOL.GS.Mimic.Controllers
         private void UpdateStateMachine()
         {
             long now = GameLoop.GameLoopTime;
+            GameLiving? owner = _brain.Owner;
             GameLiving? boss = _bb.CurrentBoss;
-            bool inCombat = _brain.GroupInCombat || _bb.EnemyMeleeOnAllies.Count > 0 || boss != null;
+            bool ownerAggressive = OwnerShowsAggression(owner);
+            bool weHaveAggro = _brain.HasAggro;
+            bool hasActiveThreat = _bb.EnemyMeleeOnAllies.Count > 0 || _bb.EnemyCasters.Count > 0 || boss != null || weHaveAggro;
+            bool engagementActive = hasActiveThreat || _brain.GroupInCombat;
 
             switch (_state)
             {
                 case WarriorTankState.OutOfCombatPrep:
-                    if (inCombat)
-                        TransitionTo(WarriorTankState.Pull);
+                    if (ownerAggressive || hasActiveThreat)
+                        TransitionTo(WarriorTankState.Pull, $"ownerAggressive={ownerAggressive}, engagementActive={engagementActive}, hasAggro={weHaveAggro}");
                     break;
                 case WarriorTankState.Pull:
+                    if (!ownerAggressive && !hasActiveThreat)
+                    {
+                        TransitionTo(WarriorTankState.ResetBetweenPacks, "owner not aggressive; waiting");
+                        break;
+                    }
+
                     if (boss != null)
                     {
                         bool bossFacingUs = boss.TargetObject == _mimic || boss.attackComponent?.attackAction?.LastAttackData?.Target == _mimic;
 
                         if (bossFacingUs)
                         {
-                            TransitionTo(WarriorTankState.EstablishThreat);
+                            TransitionTo(WarriorTankState.EstablishThreat, "boss facing mimic");
                             _establishThreatUntil = now + 8000;
                         }
                     }
-                    else if (!inCombat)
+                    else if (!hasActiveThreat)
                     {
-                        TransitionTo(WarriorTankState.OutOfCombatPrep);
+                        TransitionTo(WarriorTankState.OutOfCombatPrep, "no engagement after pull");
                     }
                     break;
                 case WarriorTankState.EstablishThreat:
                     if (boss == null)
                     {
-                        TransitionTo(WarriorTankState.ResetBetweenPacks);
+                        TransitionTo(WarriorTankState.ResetBetweenPacks, "boss lost during establish");
                     }
                     else if (now >= _establishThreatUntil || boss.TargetObject == _mimic)
                     {
-                        TransitionTo(WarriorTankState.Maintain);
+                        TransitionTo(WarriorTankState.Maintain, "threat established");
                     }
                     break;
                 case WarriorTankState.Maintain:
-                    if (!inCombat)
+                    if (!hasActiveThreat)
                     {
-                        TransitionTo(WarriorTankState.ResetBetweenPacks);
+                        TransitionTo(WarriorTankState.ResetBetweenPacks, "combat ended");
                     }
                     else if (_bb.IncomingBigDamage || IsGuardInImmediateDanger())
                     {
-                        TransitionTo(WarriorTankState.Crisis);
+                        TransitionTo(WarriorTankState.Crisis, "guard threatened or big damage");
                     }
                     break;
                 case WarriorTankState.Crisis:
                     if (!_bb.IncomingBigDamage && !IsGuardInImmediateDanger())
                     {
-                        TransitionTo(boss != null ? WarriorTankState.Maintain : WarriorTankState.ResetBetweenPacks);
+                        TransitionTo(boss != null ? WarriorTankState.Maintain : WarriorTankState.ResetBetweenPacks, "crisis resolved");
                     }
                     break;
                 case WarriorTankState.ResetBetweenPacks:
-                    if (inCombat)
+                    if (ownerAggressive || hasActiveThreat)
                     {
-                        TransitionTo(WarriorTankState.Pull);
+                        TransitionTo(WarriorTankState.Pull, $"re-engage ownerAggressive={ownerAggressive}, engagementActive={engagementActive}, hasAggro={weHaveAggro}");
                     }
                     else if (now - _stateEnteredAt > 4000)
                     {
-                        TransitionTo(WarriorTankState.OutOfCombatPrep);
+                        TransitionTo(WarriorTankState.OutOfCombatPrep, "cooldown elapsed");
                     }
                     break;
             }
@@ -497,10 +519,35 @@ namespace DOL.GS.Mimic.Controllers
 
         private void AcquirePullTarget()
         {
-            GameLiving? target = _bb.FocusTarget ?? _bb.CurrentBoss ?? _brain.EvaluateCampTargetInternal();
+            GameLiving? owner = _brain.Owner;
+            bool ownerAggressive = OwnerShowsAggression(owner);
+            bool hasActiveThreat = _bb.EnemyMeleeOnAllies.Count > 0 || _bb.EnemyCasters.Count > 0 || _bb.CurrentBoss != null || _brain.HasAggro;
+            bool engagementActive = _brain.GroupInCombat || hasActiveThreat;
+
+            if (!ownerAggressive && !hasActiveThreat)
+            {
+                _brain.LogInstructionInternal($"[PullDecision] Skipping pull: ownerAggressive={ownerAggressive}, engagementActive={engagementActive}, hasAggro={_brain.HasAggro}.");
+                return;
+            }
+
+            GameLiving? target = _bb.FocusTarget ?? _bb.CurrentBoss;
 
             if (target == null)
-                return;
+            {
+                if (!ownerAggressive)
+                {
+                    _brain.LogInstructionInternal("[PullDecision] Skipping pull: no explicit target and owner passive.");
+                    return;
+                }
+
+                target = _brain.EvaluateCampTargetInternal();
+
+                if (target == null)
+                {
+                    _brain.LogInstructionInternal("[PullDecision] Skipping pull: camp scan returned no target.");
+                    return;
+                }
+            }
 
             FocusOnTarget(target, highThreat: false, logReason: "Pulling target");
         }
@@ -892,14 +939,18 @@ namespace DOL.GS.Mimic.Controllers
             return _bb.CCPlan.MezTargets.Contains(enemy) || _bb.CCPlan.RootTargets.Contains(enemy);
         }
 
-        private void TransitionTo(WarriorTankState state)
+        private void TransitionTo(WarriorTankState state, string reason = null)
         {
             if (_state == state)
                 return;
 
             _state = state;
             _stateEnteredAt = GameLoop.GameLoopTime;
-            _brain.LogInstructionInternal($"Transitioning to {_state} state.");
+
+            if (reason != null)
+                _brain.LogInstructionInternal($"Transitioning to {_state} state ({reason}).");
+            else
+                _brain.LogInstructionInternal($"Transitioning to {_state} state.");
         }
 
         private void EnsureDefensiveAbilities()
@@ -924,3 +975,14 @@ namespace DOL.GS.Mimic.Controllers
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+

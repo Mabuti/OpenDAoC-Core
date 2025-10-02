@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" ?>
+﻿<?xml version="1.0" encoding="utf-8" ?>
 <nlog xmlns="http://www.nlog-project.org/schemas/NLog.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" throwConfigExceptions="true" throwExceptions="true">
 	<variable name="logDirectory" value="./logs" />
 	
@@ -129,10 +129,10 @@
 		
 		<!-- Global Loggers -->
 		<logger name="*"
-			minLevel="Debug"
+			minLevel="Trace"
 			writeTo="console" />
 		<logger name="*"
-			minLevel="Debug"
+			minLevel="Trace"
 			writeTo="gameServerFile" />
 		<logger name="*"
 			level="Warn"
@@ -142,3 +142,6 @@
 			writeTo="errorFile" />
 	</rules>
 </nlog>
+
+
+

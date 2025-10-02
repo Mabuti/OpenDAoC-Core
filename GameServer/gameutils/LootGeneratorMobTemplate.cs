@@ -106,6 +106,8 @@ namespace DOL.GS
 
 							if (drop == null)
 							{
+                            Console.WriteLine("[LootMissing] template={0} itemId={1} mob={2}", lootTemplate.TemplateName, lootTemplate.ItemTemplateID, mob.Name);
+                            Console.WriteLine("[LootMissing] template={0} itemId={1} mob={2}", lootTemplate.TemplateName, lootTemplate.ItemTemplateID, mob.Name);
 								if (log.IsErrorEnabled)
 									log.Error("ItemTemplate: " + dbTemplate.ItemTemplateID + " is not found, it is referenced from DropTemplateXItemTemplate: " + dbTemplate.TemplateName);
 							}
@@ -271,8 +273,10 @@ namespace DOL.GS
 							{
 								if (lootTemplate.Chance == 100)
 									loot.AddFixed(drop, lootTemplate.Count);
+                        Console.WriteLine("[LootFixed] mob={0} item={1}", mob.Name, drop.Id_nb);
 								else
 									loot.AddRandom(lootTemplate.Chance, drop, lootTemplate.Count);
+                        Console.WriteLine("[LootRandom] mob={0} item={1} chance={2}", mob.Name, drop.Id_nb, lootTemplate.Chance);
 							}
 						}
 					}
@@ -294,6 +298,7 @@ namespace DOL.GS
 
 							if (drop.Realm == (int)player.Realm || drop.Realm == 0 || player.CanUseCrossRealmItems)
 								loot.AddRandom(lootTemplate.Chance, drop, lootTemplate.Count);
+                        Console.WriteLine("[LootRandom] mob={0} item={1} chance={2}", mob.Name, drop.Id_nb, lootTemplate.Chance);
 						}
 					}
 				}
@@ -334,8 +339,10 @@ namespace DOL.GS
 					{
 						if (lootTemplate.Chance == 100)
 							lootList.AddFixed(drop, lootTemplate.Count);
+                    Console.WriteLine("[MobXLootFixed] template={0} item={1}", mobXLootTemplates.LootTemplateName, drop.Id_nb);
 						else
 							lootTemplates.Add(lootTemplate);
+                    Console.WriteLine("[MobXLootQueued] template={0} item={1} chance={2}", mobXLootTemplates.LootTemplateName, drop.Id_nb, lootTemplate.Chance);
 					}
 				}
 			}

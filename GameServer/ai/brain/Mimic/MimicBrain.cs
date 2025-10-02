@@ -486,7 +486,7 @@ namespace DOL.GS.Mimic
         {
             if (owner is GamePlayer player)
             {
-                if (player.IsInAttackMode)
+                if (player.IsAttacking)
                     return true;
             }
             else if (owner.IsAttacking)
@@ -655,13 +655,13 @@ namespace DOL.GS.Mimic
             }
 
             if (_isTank)
-                return true;
+                return ownerAggressive || ownerThreatened || HasAggro;
 
             if (_isDamageDealer)
                 return ownerAggressive || ownerThreatened || HasAggro;
 
             if (_isCrowdControl)
-                return ownerAggressive || ownerThreatened;
+                return ownerAggressive || ownerThreatened || _groupInCombat;
 
             if (_isSupport)
                 return ownerThreatened || HasAggro;
@@ -670,9 +670,9 @@ namespace DOL.GS.Mimic
                 return ownerThreatened;
 
             if (_isPuller)
-                return ownerAggressive || ownerThreatened;
+                return ownerAggressive || ownerThreatened || _groupInCombat;
 
-            return ownerAggressive || HasAggro;
+            return ownerAggressive || ownerThreatened || HasAggro;
         }
 
         private bool ShouldEngageCampTarget()
@@ -680,11 +680,18 @@ namespace DOL.GS.Mimic
             if (_preventCombat)
                 return false;
 
+            bool ownerAggressive = Owner is GameLiving owner && OwnerIsAggressive(owner);
+            bool ownerThreatened = IsOwnerUnderThreat();
+            bool weHaveAggro = HasAggro;
+
+            if (!ownerAggressive && !ownerThreatened && !weHaveAggro && !_groupInCombat)
+                return false;
+
             if (_isPuller || _isTank || _isLeader)
-                return true;
+                return ownerAggressive || weHaveAggro || _groupInCombat;
 
             if (_isCrowdControl && !_isHealer)
-                return true;
+                return ownerAggressive || ownerThreatened || _groupInCombat;
 
             return false;
         }

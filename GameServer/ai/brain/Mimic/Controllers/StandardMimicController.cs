@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using DOL.AI.Brain;
@@ -7,10 +7,8 @@ using DOL.GS.Spells;
 
 namespace DOL.GS.Mimic.Controllers
 {
-    internal sealed class StandardMimicController : IMimicController
+    internal sealed class StandardMimicController : MimicControllerBase
     {
-        private readonly MimicBrain _brain;
-        private readonly MimicNPC _mimic;
         private readonly MimicBehaviorProfile _profile;
         private readonly List<GameLiving> _allies = new();
         private readonly HashSet<GameLiving> _allySet = new();
@@ -32,13 +30,10 @@ namespace DOL.GS.Mimic.Controllers
         private long _nextNearsightCheck;
         private long _nextStrengthRefresh;
         private long _nextPowerRefresh;
-        private bool _enabled;
-        private bool _disposed;
 
         private StandardMimicController(MimicBrain brain, MimicNPC mimic, MimicBehaviorProfile profile)
+            : base(brain, mimic)
         {
-            _brain = brain;
-            _mimic = mimic;
             _profile = profile;
         }
 
@@ -54,20 +49,24 @@ namespace DOL.GS.Mimic.Controllers
             return new StandardMimicController(brain, mimic, profile);
         }
 
-        public void Dispose()
+        public override void Dispose()
         {
-            _disposed = true;
+            if (IsDisposed)
+                return;
+
+            base.Dispose();
             _allies.Clear();
             _threats.Clear();
             _crowdControlTracker.Clear();
         }
 
-        public void OnRoleChanged(MimicRole role)
+        public override void OnRoleChanged(MimicRole role)
         {
-            if (_disposed)
+            base.OnRoleChanged(role);
+
+            if (IsDisposed)
                 return;
 
-            _enabled = role != MimicRole.None;
             _nextHealCheck = 0;
             _nextCrowdControlCheck = 0;
             _nextInterruptCheck = 0;
@@ -77,21 +76,21 @@ namespace DOL.GS.Mimic.Controllers
             _nextPowerRefresh = 0;
         }
 
-        public void OnPreventCombatChanged(bool value)
+        public override void OnPreventCombatChanged(bool value)
         {
         }
 
-        public void OnPvPModeChanged(bool value)
+        public override void OnPvPModeChanged(bool value)
         {
         }
 
-        public void OnGuardTargetChanged(GameLiving? target)
+        public override void OnGuardTargetChanged(GameLiving? target)
         {
         }
 
-        public void Think()
+        public override void Think()
         {
-            if (!_enabled || _disposed)
+            if (!CanOperate)
                 return;
 
             RefreshGroupState();
@@ -99,9 +98,9 @@ namespace DOL.GS.Mimic.Controllers
             MaintainLongDurationBuffs();
         }
 
-        public bool TryHandleRoleBehaviors()
+        public override bool TryHandleRoleBehaviors()
         {
-            if (!_enabled || _disposed)
+            if (!CanOperate)
                 return false;
 
             bool performed = false;
@@ -124,7 +123,7 @@ namespace DOL.GS.Mimic.Controllers
             return performed;
         }
 
-        public bool TryUpdateCombatOrder()
+        public override bool TryUpdateCombatOrder()
         {
             return false;
         }
@@ -559,7 +558,7 @@ namespace DOL.GS.Mimic.Controllers
             if (_brain.GroupInCombat)
                 return true;
 
-            if (_mimic.Owner is GameLiving owner && OwnerIsAggressive(owner))
+            if (_mimic.Owner is GameLiving owner && OwnerShowsAggression(owner))
                 return true;
 
             foreach (GameLiving ally in _allies)
@@ -573,17 +572,10 @@ namespace DOL.GS.Mimic.Controllers
             return false;
         }
 
-        private static bool OwnerIsAggressive(GameLiving owner)
-        {
-            if (owner is GamePlayer player && player.IsInAttackMode)
-                return true;
-
-            if (owner.IsAttacking)
-                return true;
-
-            ISpellHandler? handler = owner.CurrentSpellHandler;
-            return handler != null && handler.Spell.Target == eSpellTarget.ENEMY;
-        }
     }
 }
+
+
+
+
 

@@ -1131,6 +1131,9 @@ namespace DOL.GS.ServerRules
                         if (player == null)
                             continue;
 
+                        if (log.IsDebugEnabled)
+                            log.Debug($"ProcessXpGainers: attributing mimic {mimic.Name} damage {pair.Value} to owner {player.Name} for mob {killedNpc.Name}.");
+
                         conLiving = player;
                     }
 
@@ -1510,13 +1513,36 @@ namespace DOL.GS.ServerRules
         {
             List<GamePlayer> playersInRadius = killedNpc.GetPlayersInRadius(WorldMgr.INFO_DISTANCE);
 
-            foreach (DbItemTemplate itemTemplate in LootMgr.GetLoot(killedNpc, killer))
+            DbItemTemplate[] lootTemplates = LootMgr.GetLoot(killedNpc, killer);
+
+            if (killer is MimicNPC mimicKiller)
+            {
+                string ownerName = mimicKiller.Owner?.Name ?? "<no owner>";
+                Console.WriteLine($"[LootDebug {BuildInfo.Stamp}] Mimic killer {mimicKiller.Name} (owner {ownerName}) generated {lootTemplates.Length} templates for mob '{killedNpc.Name}'.");
+            }
+            else if (log.IsDebugEnabled)
+            {
+                string killerType = killer != null ? killer.GetType().Name : "null";
+                log.Debug($"DropLoot: mob {killedNpc.Name} generated {lootTemplates.Length} templates (killerType={killerType}).");
+            }
+
+            bool droppedItems = false;
+            bool droppedMoney = false;
+
+            foreach (DbItemTemplate itemTemplate in lootTemplates)
             {
                 if (GameMoney.IsItemMoney(itemTemplate.Name))
+                {
+                    droppedMoney = true;
                     CreateMoney(killedNpc, itemTemplate, itemOwners, playersInRadius);
+                }
                 else
+                {
+                    droppedItems = true;
                     CreateItem(killedNpc, itemTemplate, itemOwners, playersInRadius);
+                }
             }
+            Console.WriteLine("[LootDrop {0}] Mob '{1}' - Items dropped: {2} - Money dropped: {3}", BuildInfo.Stamp, killedNpc.Name, droppedItems ? "yes" : "no", droppedMoney ? "yes" : "no" );
 
             static void CreateMoney(GameNPC killedNpc, DbItemTemplate itemTemplate, SortedSet<ItemOwnerTotalDamagePair> itemOwners, List<GamePlayer> playersInRadius)
             {
