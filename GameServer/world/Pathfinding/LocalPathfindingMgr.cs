@@ -34,7 +34,19 @@ namespace DOL.GS
             // Upstream's DetourNativeLibrary only *locates* an existing Detour.so; this fork
             // *creates* it from an embedded base64 payload into <BaseDirectory>/lib/Detour.so,
             // which is one of the paths that resolver searches. Complementary, not redundant.
-            DetourLibraryInstaller.EnsureNativeLibraryPresent();
+            // A failed bootstrap must not abort server startup. The pre-merge fork made this call
+            // inside Init's try/catch and returned false, degrading to null pathing; neither this
+            // method nor PathfindingProvider.Init catches, so an unguarded throw here would
+            // propagate into GameServer startup. Swallow and let the probe below decide.
+            try
+            {
+                DetourLibraryInstaller.EnsureNativeLibraryPresent();
+            }
+            catch (Exception e)
+            {
+                if (log.IsWarnEnabled)
+                    log.Warn($"{nameof(DetourLibraryInstaller)} could not materialize the bundled Detour library", e);
+            }
 
             if (!DetourNavMesh.TryProbeNativeLibrary(out Exception error))
             {

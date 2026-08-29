@@ -92,16 +92,25 @@ namespace DOL.GS.GameEvents
 
                 guard.movementComponent.ForceUpdatePosition(); // Ensures `CurrentAreas` returns something.
 
-                foreach (IArea area in guard.CurrentAreas)
-                {
-                    if (area is not KeepArea keepArea)
-                        continue;
+                // CurrentAreas is CurrentZone.GetAreasOfSpot(this) and CurrentZone is
+                // CurrentRegion?.GetZone(X, Y), so it is null whenever the region is not loaded or
+                // the coordinates fall outside every zone -- which would throw here. The pre-merge
+                // fork guarded that case; upstream does not. Keep the guard.
+                Zone zone = guard.CurrentZone;
 
-                    guard.Component = new()
+                if (zone != null)
+                {
+                    foreach (IArea area in zone.GetAreasOfSpot(guard.X, guard.Y, guard.Z))
                     {
-                        Keep = keepArea.Keep
-                    };
-                    break;
+                        if (area is not KeepArea keepArea)
+                            continue;
+
+                        guard.Component = new()
+                        {
+                            Keep = keepArea.Keep
+                        };
+                        break;
+                    }
                 }
 
                 GuardTemplateMgr.RefreshTemplate(guard);

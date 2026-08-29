@@ -43,6 +43,7 @@ Caution: if you use all navmeshes, you will need at least 5GB of RAM.
 
 ## Managed wrapper
 `../Detour.Managed` is a game-agnostic C# P/Invoke library over Detour. It is used by OpenDAoC-Core (`LocalPathfindingMgr`) and OpenDAoC-BuildNav (ladder off-mesh second pass).
+
 ### Prebuilt binaries
 
 The repository now embeds a compressed Linux shared library that is unpacked automatically at runtime.
