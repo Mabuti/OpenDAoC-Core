@@ -332,7 +332,7 @@ namespace DOL.AI.Brain
 		{
 			if (HasAggro && Body.TargetObject != null)
             {
-				if (!Body.IsCasting && !Body.IsBeingInterrupted)
+				if (!Body.IsCasting && !Body.IsInterruptedOrSelfInterrupted())
 				{
 					if (Body.attackComponent.AttackState)
 						Body.attackComponent.StopAttack();
@@ -371,7 +371,6 @@ namespace DOL.AI.Brain
 					spell.Type = eSpellType.DirectDamageNoVariance.ToString();
 					spell.DamageType = (int)eDamageType.Heat;
 					m_Mage_DD = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Mage_DD);
 				}
 				return m_Mage_DD;
 			}
@@ -398,7 +397,6 @@ namespace DOL.AI.Brain
 					spell.Type = eSpellType.DirectDamageNoVariance.ToString();
 					spell.DamageType = (int)eDamageType.Cold;
 					m_Mage_DD2 = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Mage_DD2);
 				}
 				return m_Mage_DD2;
 			}

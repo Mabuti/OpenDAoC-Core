@@ -122,7 +122,6 @@ namespace DOL.GS
 					spell.MoveCast = true;
 					spell.DamageType = (int)eDamageType.Heat;
 					m_HeatAoeProc = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_HeatAoeProc);
 				}
 
 				return m_HeatAoeProc;
@@ -141,7 +140,7 @@ namespace DOL.AI.Brain
 			AggroRange = 600;
 			ThinkInterval = 1500;
 		}
-		public static bool IsPulled = false;
+		public bool IsPulled = false;
 		public override void Think()
 		{
 			if (!CheckProximityAggro())

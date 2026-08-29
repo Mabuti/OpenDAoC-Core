@@ -1,7 +1,6 @@
-using System;
 using System.Collections.Generic;
 using System.Reflection;
-using DOL.GS.Commands;
+using DOL.Logging;
 
 namespace DOL.GS.PacketHandler.Client.v168
 {
@@ -9,14 +8,11 @@ namespace DOL.GS.PacketHandler.Client.v168
     /// Handles spell cast requests from client
     /// </summary>
     [PacketHandlerAttribute(PacketHandlerType.TCP, eClientPackets.UseSpell, "Handles Player Use Spell Request.", eClientStatus.PlayerInGame)]
-    public class UseSpellHandler : AbstractCommandHandler, IPacketHandler
+    public class UseSpellHandler : PacketHandler
     {
-        /// <summary>
-        /// Defines a logger for this class.
-        /// </summary>
-        private static readonly Logging.Logger Log = Logging.LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
+        private static readonly Logger Log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
 
-        public void HandlePacket(GameClient client, GSPacketIn packet)
+        protected override void HandlePacketInternal(GameClient client, GSPacketIn packet)
         {
             if (client.Player.ObjectState is not GameObject.eObjectState.Active || client.ClientState is not GameClient.eClientState.Playing)
                 return;
@@ -29,12 +25,12 @@ namespace DOL.GS.PacketHandler.Client.v168
             {
                 if (client.Player.IsPositionUpdateFromPacketAllowed())
                 {
-                    client.Player.X = (int) packet.ReadFloatLowEndian();
-                    client.Player.Y = (int) packet.ReadFloatLowEndian();
-                    client.Player.Z = (int) packet.ReadFloatLowEndian();
+                    float x = packet.ReadFloatLowEndian();
+                    float y = packet.ReadFloatLowEndian();
+                    float z = packet.ReadFloatLowEndian();
                     client.Player.CurrentSpeed = (short) packet.ReadFloatLowEndian();
                     client.Player.Heading = packet.ReadShort();
-                    client.Player.OnPositionUpdateFromPacket();
+                    client.Player.OnPositionUpdateFromPacket(new(x, y, z));
                 }
 
                 flagSpeedData = packet.ReadShort();
@@ -62,12 +58,11 @@ namespace DOL.GS.PacketHandler.Client.v168
                             Log.Warn($"Unknown zone in UseSpellHandler: {currentZoneID} player: {client.Player.Name}");
                         else
                         {
-                            client.Player.X = newZone.XOffset + xOffsetInZone;
-                            client.Player.Y = newZone.YOffset + yOffsetInZone;
-                            client.Player.Z = realZ;
+                            float x = newZone.XOffset + xOffsetInZone;
+                            float y = newZone.YOffset + yOffsetInZone;
+                            float z = realZ;
+                            client.Player.OnPositionUpdateFromPacket(new(x, y, z));
                         }
-
-                        client.Player.OnPositionUpdateFromPacket();
                     }
                 }
 
@@ -110,7 +105,7 @@ namespace DOL.GS.PacketHandler.Client.v168
             sk = null;
             sl = null;
 
-            List<Tuple<SpellLine, List<Skill>>> snap = player.GetAllUsableListSpells();
+            var snap = player.GetAllUsableListSpells();
 
             if (spellLineIndex >= snap.Count)
                 return;

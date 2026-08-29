@@ -6,13 +6,12 @@ using DOL.Events;
 using DOL.GS.Effects;
 using DOL.GS.PacketHandler;
 using DOL.Language;
-using DOL.Logging;
 
 namespace DOL.GS.Spells
 {
     public abstract class BaseProcSpellHandler : SpellHandler
     {
-        private static readonly Logger log = LoggerManager.Create(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+        protected override bool ShortDescriptionIncludesFrequency => false;
 
         protected readonly SpellLine _buffSpellLine;
         protected readonly Spell _procSpell;
@@ -24,6 +23,11 @@ namespace DOL.GS.Spells
         {
             _buffSpellLine = spellLine;
             _procSpell = SkillBase.GetSpellByID((int) spell.Value);
+
+            if (_procSpell == null)
+                return;
+
+            _procSpell.Level = spell.Level; // Inherit the buff's level.
 
             // Scale the proc here, since it cannot be scaled on NPC initialization.
             if (caster is GameNPC npc)
@@ -37,7 +41,7 @@ namespace DOL.GS.Spells
             // If they're different, we can't really use the buff spell line, so we use the item effects spell line as a way to reduce variance.
             // Ideally, proc spells should use the buff spell line and the caster's specialization, stats, RAs, etc. But this isn't currently supported.
             _procSpellLine = initParams.Target == Caster ? _buffSpellLine : SkillBase.GetSpellLine(GlobalSpellsLines.Item_Effects);
-            return ECSGameEffectFactory.Create(initParams, static (in ECSGameEffectInitParams i) => new ProcECSGameEffect(i));
+            return ECSGameEffectFactory.Create(initParams, static (in i) => new ProcECSGameEffect(i));
         }
 
         protected abstract void EventHandler(DOLEvent e, object sender, EventArgs arguments);
@@ -144,36 +148,23 @@ namespace DOL.GS.Spells
                 if (Spell.Radius != 0)
                     list.Add($"Radius: {Spell.Radius}");
 
-                byte nextDelveDepth = (byte) (DelveInfoDepth + 1);
+                list.Add(" ");
+                list.Add("Sub-spell information: ");
+                list.Add(" ");
+                ISpellHandler subSpellHandler = ScriptMgr.CreateSpellHandler(Caster, _procSpell, _procSpellLine);
 
-                if (nextDelveDepth > MAX_DELVE_RECURSION)
+                if (subSpellHandler == null)
                 {
-                    list.Add("(recursion - see server logs)");
-
-                    if (log.IsErrorEnabled)
-                        log.Error($"Spell delve info recursion limit reached. Source spell ID: {m_spell.ID}, Sub-spell ID: {_procSpell.ID}");
+                    list.Add($"unable to create sub-spell handler: '{_procSpellLine}', {m_spell.Value}");
+                    return list;
                 }
-                else
+
+                IList<string> subSpellDelve = subSpellHandler.DelveInfo;
+
+                if (subSpellDelve.Count > 0)
                 {
-                    list.Add(" ");
-                    list.Add("Sub-spell information: ");
-                    list.Add(" ");
-                    ISpellHandler subSpellHandler = ScriptMgr.CreateSpellHandler(Caster, _procSpell, _procSpellLine);
-
-                    if (subSpellHandler == null)
-                    {
-                        list.Add($"unable to create sub-spell handler: '{_procSpellLine}', {m_spell.Value}");
-                        return list;
-                    }
-
-                    subSpellHandler.DelveInfoDepth = nextDelveDepth;
-                    IList<string> subSpellDelve = subSpellHandler.DelveInfo;
-
-                    if (subSpellDelve.Count > 0)
-                    {
-                        subSpellDelve.RemoveAt(0);
-                        list.AddRange(subSpellDelve);
-                    }
+                    subSpellDelve.RemoveAt(0);
+                    list.AddRange(subSpellDelve);
                 }
 
                 return list;
@@ -189,7 +180,7 @@ namespace DOL.GS.Spells
             get
             {
                 ISpellHandler subSpell = ScriptMgr.CreateSpellHandler(m_caster, SkillBase.GetSpellByID((int)Spell.Value), null);
-                return $"Triggers the following spell with a {Spell.Frequency / 100}% chance on own melee attacks:\n\n" +
+                return $"Triggers the following spell with a {Spell.Frequency / 100}% chance on own melee attacks{GetFrequencyAndDurationSuffix()}:\n\n" +
                     (subSpell != null ? subSpell.ShortDescription : $"Spell with ID {Spell.Value} not found.");
             }
         }
@@ -207,25 +198,25 @@ namespace DOL.GS.Spells
 
             int baseChance = Spell.Frequency / 100;
 
-            if (Util.Chance(baseChance))
-            {
-                ISpellHandler handler = ScriptMgr.CreateSpellHandler(ad.Attacker, _procSpell, _procSpellLine);
+            if (!Caster.RandomProvider.Chance(RandomContextFactory.OffensiveProcChance(), baseChance))
+                return;
 
-                if (handler != null)
+            ISpellHandler handler = ScriptMgr.CreateSpellHandler(ad.Attacker, _procSpell, _procSpellLine);
+
+            if (handler == null)
+                return;
+
+            switch (_procSpell.Target)
+            {
+                case eSpellTarget.ENEMY:
                 {
-                    switch (_procSpell.Target)
-                    {
-                        case eSpellTarget.ENEMY:
-                        {
-                            handler.StartSpell(ad.Target);
-                            break;
-                        }
-                        default:
-                        {
-                            handler.StartSpell(ad.Attacker);
-                            break;
-                        }
-                    }
+                    handler.StartSpell(ad.Target);
+                    break;
+                }
+                default:
+                {
+                    handler.StartSpell(ad.Attacker);
+                    break;
                 }
             }
         }
@@ -241,7 +232,7 @@ namespace DOL.GS.Spells
             get
             {
                 ISpellHandler subSpell = ScriptMgr.CreateSpellHandler(m_caster, SkillBase.GetSpellByID((int)Spell.Value), null);
-                return $"Triggers the following spell with a {Spell.Frequency / 100}% chance when being hit by melee attacks:\n\n" +
+                return $"Triggers the following spell with a {Spell.Frequency / 100}% chance when being hit by melee attacks{GetFrequencyAndDurationSuffix()}:\n\n" +
                     (subSpell != null ? subSpell.ShortDescription : $"Spell with ID {Spell.Value} not found.");
             }
         }
@@ -257,25 +248,25 @@ namespace DOL.GS.Spells
 
             int baseChance = Spell.Frequency / 100;
 
-            if (Util.Chance(baseChance))
-            {
-                ISpellHandler handler = ScriptMgr.CreateSpellHandler(ad.Target, _procSpell, _procSpellLine);
+            if (!Caster.RandomProvider.Chance(RandomContextFactory.DefensiveProcChance(), baseChance))
+                return;
 
-                if (handler != null)
+            ISpellHandler handler = ScriptMgr.CreateSpellHandler(ad.Target, _procSpell, _procSpellLine);
+
+            if (handler == null)
+                return;
+
+            switch (_procSpell.Target)
+            {
+                case eSpellTarget.ENEMY:
                 {
-                    switch (_procSpell.Target)
-                    {
-                        case eSpellTarget.ENEMY:
-                        {
-                            handler.StartSpell(ad.Attacker);
-                            break;
-                        }
-                        default:
-                        {
-                            handler.StartSpell(ad.Target);
-                            break;
-                        }
-                    }
+                    handler.StartSpell(ad.Attacker);
+                    break;
+                }
+                default:
+                {
+                    handler.StartSpell(ad.Target);
+                    break;
                 }
             }
         }

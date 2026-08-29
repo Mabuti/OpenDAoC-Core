@@ -1,5 +1,6 @@
 using System;
 using DOL.GS;
+using DOL.GS.ServerProperties;
 
 namespace DOL.AI.Brain
 {
@@ -7,15 +8,15 @@ namespace DOL.AI.Brain
     {
         protected const int BASEFORMATIONDIST = 50;
 
+        public bool MinionsAssisting => Owner is CommanderPet commander && commander.MinionsAssisting;
+        protected override bool CanCastDefensiveSpellsOnGroupMembers => false;
+        protected override int HealThreshold => Properties.BONEDANCER_HEALER_PET_HEAL_THRESHOLD;
+        protected override bool UseEmergencyHeal => false;
+
         public BdPetBrain(GameLiving Owner) : base(Owner)
         {
             IsMainPet = false;
         }
-
-        /// <summary>
-        /// Are minions assisting the commander?
-        /// </summary>
-        public bool MinionsAssisting => Owner is CommanderPet commander && commander.MinionsAssisting;
 
         protected override GameLiving CalculateNextAttackTarget()
         {
@@ -46,9 +47,6 @@ namespace DOL.AI.Brain
 
         public override void FollowOwner()
         {
-            if (Body.IsAttacking)
-                Disengage();
-
             Body.Follow(Owner, MIN_OWNER_FOLLOW_DIST, MAX_OWNER_FOLLOW_DIST);
         }
 

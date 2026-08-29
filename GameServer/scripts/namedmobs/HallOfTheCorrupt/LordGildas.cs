@@ -125,9 +125,6 @@ namespace DOL.GS
             template.AddNPCEquipment(eInventorySlot.TwoHandWeapon, 7, 0, 0);
             Inventory = template.CloseTemplate();
             SwitchWeapon(eActiveWeaponSlot.Standard);
-            LordGildasBrain.Stage2 = false;
-            LordGildasBrain.CanWalk = false;
-            LordGildasBrain.Reset_Gildas = false;
             if (!Styles.Contains(taunt))
                 Styles.Add(taunt);
             if (!Styles.Contains(slam))
@@ -200,9 +197,9 @@ namespace DOL.AI.Brain
             AggroRange = 500;
             ThinkInterval = 500;
         }
-        public static bool CanWalk = false;
-        public static bool Stage2 = false;
-        public static bool Reset_Gildas = false;
+        public bool CanWalk = false;
+        public bool Stage2 = false;
+        public bool Reset_Gildas = false;
         public int ResetGildas(ECSGameTimer timer)
         {
             Reset_Gildas = false;
@@ -352,7 +349,6 @@ namespace DOL.AI.Brain
                     float angle = living.GetAngle(Body);
                     Point2D positionalPoint;
                     positionalPoint = living.GetPointFromHeading((ushort)(living.Heading + (180 * (4096.0 / 360.0))), 65);
-                    //Body.WalkTo(positionalPoint.X, positionalPoint.Y, living.Z, 280);
                     Body.X = positionalPoint.X;
                     Body.Y = positionalPoint.Y;
                     Body.Z = living.Z;

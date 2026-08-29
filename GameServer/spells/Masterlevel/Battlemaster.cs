@@ -33,8 +33,8 @@ namespace DOL.GS.Spells
             target.ChangeEndurance(target, eEnduranceChangeType.Spell, (-end));
 
             if (target is GamePlayer)
-                ((GamePlayer)target).Out.SendMessage(" You lose " + end + " endurance!", eChatType.CT_YouWereHit, eChatLoc.CL_SystemWindow);
-            (m_caster as GamePlayer).Out.SendMessage("" + target.Name + " loses " + end + " endurance!", eChatType.CT_YouWereHit, eChatLoc.CL_SystemWindow);
+                ((GamePlayer)target).Out.SendMessage(" You lose " + end + " endurance!", eChatType.CT_System, eChatLoc.CL_SystemWindow);
+            (m_caster as GamePlayer).Out.SendMessage("" + target.Name + " loses " + end + " endurance!", eChatType.CT_System, eChatLoc.CL_SystemWindow);
 
             target.StartInterruptTimer(target.SpellInterruptDuration, AttackData.eAttackType.Spell, Caster);
         }
@@ -83,7 +83,7 @@ namespace DOL.GS.Spells
     {
         private int check = 0;
 
-        public override string ShortDescription => "You are stunned and cannot take any actions.";
+        public override string ShortDescription => $"You are stunned and cannot take any actions{GetFrequencyAndDurationSuffix()}.";
 
         public override bool CheckBeginCast(GameLiving selectedTarget)
         {
@@ -293,10 +293,9 @@ namespace DOL.GS.Spells
                     spell.Value = 0;
                     spell.Duration = 10;
                     spell.SpellID = 900100;
-                    spell.Target = "Self";
+                    spell.Target = eSpellTarget.SELF.ToString();
                     spell.Type = eSpellType.Disarm.ToString();
                     Disarm_Weapon = new Spell(spell, 50);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Combat_Styles_Effect, Disarm_Weapon);
                 }
                 return Disarm_Weapon;
             }
@@ -424,13 +423,6 @@ namespace DOL.GS.Spells
             // send animation before dealing damage else dead livings show no animation
             ad.Target.OnAttackedByEnemy(ad);
             ad.Attacker.DealDamage(ad);
-            if (ad.Damage == 0 && ad.Target is GameNPC)
-            {
-                IOldAggressiveBrain aggroBrain = ((GameNPC)ad.Target).Brain as IOldAggressiveBrain;
-                if (aggroBrain != null)
-                    aggroBrain.AddToAggroList(Caster, 1);
-            }
-            
         }
 
         public override void SendDamageMessages(AttackData ad)
@@ -534,6 +526,8 @@ namespace DOL.GS.Spells
 
         public override AttackData CalculateDamageToTarget(GameLiving target)
         {
+            // A lot of things here is outdated and need to be rewritten.
+
             GamePlayer player = Caster as GamePlayer;
 
             if (player == null)
@@ -581,7 +575,7 @@ namespace DOL.GS.Spells
 
             if (ad.AttackResult == eAttackResult.HitUnstyled || ad.AttackResult == eAttackResult.HitStyle)
             {
-                double damage = player.attackComponent.AttackDamage(weapon, null, out _) * effectiveness;
+                double damage = player.attackComponent.WeaponDamage(weapon, null, effectiveness, out _);
 
                 if (target is GamePlayer)
                     ad.ArmorHitLocation = ((GamePlayer)target).CalculateArmorHitLocation(ad);
@@ -595,7 +589,7 @@ namespace DOL.GS.Spells
                 lowerboundary = Math.Max(lowerboundary, 75);
                 lowerboundary = Math.Min(lowerboundary, 125);
 
-                damage *= (player.GetWeaponSkill(weapon) + 90.68) / (ad.Target.GetArmorAF(ad.ArmorHitLocation) + 20 * 4.67);
+                damage *= (player.GetWeaponSkill(player.GetWeaponStat(weapon), player.GetClassBaseWeaponSkill(weapon)) + 90.68) / (ad.Target.GetArmorAF(ad.ArmorHitLocation) + 20 * 4.67);
 
                 //If they have badge of Valor, we need to modify the damage
 				if (ad.Attacker.EffectList.GetOfType<BadgeOfValorEffect>() != null)
@@ -618,7 +612,7 @@ namespace DOL.GS.Spells
                 damage += resistModifier;
                 ad.Modifier += resist;
                 ad.Damage = (int)damage;
-                ad.Damage = Math.Min(ad.Damage, (int)(player.attackComponent.AttackDamage(weapon, null, out _) * effectiveness));
+                ad.Damage = Math.Min(ad.Damage, (int)player.attackComponent.WeaponDamage(weapon, null, effectiveness, out _));
                 ad.Damage = (int)(ad.Damage * ServerProperties.Properties.PVP_MELEE_DAMAGE);
 
                 if (ad.Damage == 0)
@@ -626,7 +620,7 @@ namespace DOL.GS.Spells
                 else
                 {
                     ad.CriticalChance = player.attackComponent.CalculateCriticalChance(null);
-                    ad.CriticalDamage = player.attackComponent.CalculateCriticalDamage(ad);
+                    ad.CriticalDamage = player.attackComponent.CalculateCriticalDamage(null, ad);
                 }
 
                 static int GetDamageResist(GameLiving living, eResist resistType)
@@ -685,7 +679,6 @@ namespace DOL.GS.Spells
                 GamePlayer player = effect.Owner as GamePlayer;
                 player.Out.SendCharStatsUpdate();
                 player.UpdateEncumbrance();
-                player.UpdatePlayerStatus();
                 player.Out.SendUpdatePlayer();
             }
         }
@@ -698,7 +691,6 @@ namespace DOL.GS.Spells
             {
                 GamePlayer player = effect.Owner as GamePlayer;
                 player.Out.SendCharStatsUpdate();
-                player.UpdatePlayerStatus();
                 player.Out.SendUpdatePlayer();
             }
             return base.OnEffectExpires(effect, noMessages);
@@ -716,12 +708,6 @@ namespace DOL.GS.Spells
             {
                 target.LastAttackedByEnemyTickPvP = target.CurrentRegion.Time;
                 Caster.LastAttackTickPvP = Caster.CurrentRegion.Time;
-            }
-            if (target is GameNPC)
-            {
-                IOldAggressiveBrain aggroBrain = ((GameNPC)target).Brain as IOldAggressiveBrain;
-                if (aggroBrain != null)
-                    aggroBrain.AddToAggroList(Caster, (int)Spell.Value);
             }
         }
         public EssenceSearHandler(GameLiving caster, Spell spell, SpellLine line) : base(caster, spell, line) { }
@@ -778,7 +764,6 @@ namespace DOL.GS.Spells
             {
                 GamePlayer player = effect.Owner as GamePlayer;
                 player.Out.SendCharStatsUpdate();
-                player.UpdatePlayerStatus();
                 player.Out.SendUpdatePlayer();
             }
         }
@@ -792,7 +777,6 @@ namespace DOL.GS.Spells
             {
                 GamePlayer player = effect.Owner as GamePlayer;
                 player.Out.SendCharStatsUpdate();
-                player.UpdatePlayerStatus();
                 player.Out.SendUpdatePlayer();
             }
             return base.OnEffectExpires(effect, noMessages);
@@ -810,12 +794,6 @@ namespace DOL.GS.Spells
             {
                 target.LastAttackedByEnemyTickPvP = target.CurrentRegion.Time;
                 Caster.LastAttackTickPvP = Caster.CurrentRegion.Time;
-            }
-            if (target is GameNPC)
-            {
-                IOldAggressiveBrain aggroBrain = ((GameNPC)target).Brain as IOldAggressiveBrain;
-                if (aggroBrain != null)
-                    aggroBrain.AddToAggroList(Caster, (int)Spell.Value);
             }
         }
         public EssenceDampenHandler(GameLiving caster, Spell spell, SpellLine line) : base(caster, spell, line) { }

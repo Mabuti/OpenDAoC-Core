@@ -15,12 +15,12 @@ namespace DOL.GS.Keeps
         private eRealm m_lastRealm = eRealm.None;
         private long m_lastSpawnTime = 0;
 
+        public override double MaxHealthScalingFactor => 3.0;
+
         public override double GetArmorAbsorb(eArmorSlot slot)
         {
             return base.GetArmorAbsorb(slot) + 0.05;
         }
-
-        public override int MaxHealth => base.MaxHealth * 3;
 
         public override int RealmPointsValue
         {
@@ -139,59 +139,55 @@ namespace DOL.GS.Keeps
         /// <param name="killer">The killer object</param>
         public override void Die(GameObject killer)
         {
-            if (!IsBeingHandledByReaperService)
+            m_lastRealm = eRealm.None;
+
+            if (Properties.LOG_KEEP_CAPTURES)
             {
-                this.IsBeingHandledByReaperService = true;
-                m_lastRealm = eRealm.None;
-
-                if (Properties.LOG_KEEP_CAPTURES)
+                try
                 {
-                    try
+                    if (this.Component != null)
                     {
-                        if (this.Component != null)
-                        {
-                            Database.DbKeepCaptureLog keeplog = new Database.DbKeepCaptureLog();
-                            keeplog.KeepName = Component.Keep.Name;
+                        Database.DbKeepCaptureLog keeplog = new Database.DbKeepCaptureLog();
+                        keeplog.KeepName = Component.Keep.Name;
 
-                            if (Component.Keep is GameKeep)
-                                keeplog.KeepType = "Keep";
-                            else
-                                keeplog.KeepType = "Tower";
-
-                            keeplog.NumEnemies = GetEnemyCountInArea();
-                            keeplog.RPReward = RealmPointsValue;
-                            keeplog.BPReward = BountyPointsValue;
-                            keeplog.XPReward = ExperienceValue;
-                            keeplog.MoneyReward = MoneyValue;
-
-                            if (Component.Keep.StartCombatTick > 0)
-                            {
-                                keeplog.CombatTime = (int)((Component.Keep.CurrentRegion.Time - Component.Keep.StartCombatTick) / 1000 / 60);
-                            }
-
-                            keeplog.CapturedBy = GlobalConstants.RealmToName(killer.Realm);
-
-                            string listRPGainers = string.Empty;
-
-                            lock (XpGainersLock)
-                            {
-                                foreach (var pair in XPGainers)
-                                    listRPGainers += pair.Key.Name + ";";
-                            }
-
-                            keeplog.RPGainerList = listRPGainers.TrimEnd(';');
-
-                            GameServer.Database.AddObject(keeplog);
-                        }
+                        if (Component.Keep is GameKeep)
+                            keeplog.KeepType = "Keep";
                         else
+                            keeplog.KeepType = "Tower";
+
+                        keeplog.NumEnemies = GetEnemyCountInArea();
+                        keeplog.RPReward = RealmPointsValue;
+                        keeplog.BPReward = BountyPointsValue;
+                        keeplog.XPReward = ExperienceValue;
+                        keeplog.MoneyReward = MoneyValue;
+
+                        if (Component.Keep.StartCombatTick > 0)
                         {
-                            log.Error("Component null for Guard Lord " + Name);
+                            keeplog.CombatTime = (int)((Component.Keep.CurrentRegion.Time - Component.Keep.StartCombatTick) / 1000 / 60);
                         }
+
+                        keeplog.CapturedBy = GlobalConstants.RealmToName(killer.Realm);
+
+                        string listRPGainers = string.Empty;
+
+                        lock (XpGainersLock)
+                        {
+                            foreach (var pair in XPGainers)
+                                listRPGainers += pair.Key.Name + ";";
+                        }
+
+                        keeplog.RPGainerList = listRPGainers.TrimEnd(';');
+
+                        GameServer.Database.AddObject(keeplog);
                     }
-                    catch (System.Exception ex)
+                    else
                     {
-                        log.Error("KeepCaptureLog Exception", ex);
+                        log.Error("Component null for Guard Lord " + Name);
                     }
+                }
+                catch (System.Exception ex)
+                {
+                    log.Error("KeepCaptureLog Exception", ex);
                 }
             }
 
@@ -239,7 +235,6 @@ namespace DOL.GS.Keeps
 
             return false;
         }
-
 
         /// <summary>
         /// From a great distance, damage does not harm lord
@@ -388,7 +383,7 @@ namespace DOL.GS.Keeps
             }
         }
 
-        private string GetKeepShortName(string KeepName)
+        private static string GetKeepShortName(string KeepName)
         {
             string ShortName;
             if (KeepName.StartsWith("Caer"))//Albion

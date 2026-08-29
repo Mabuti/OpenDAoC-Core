@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Reflection;
 using System.Threading;
 using DOL.GS.ServerProperties;
@@ -18,26 +17,20 @@ namespace DOL.GS
         private static Thread _gameLoopThread;
         private static GameLoopThreadPool _threadPool;
         private static GameLoopTickPacer _tickPacer;
-        private static long _stopwatchFrequencyMilliseconds = Stopwatch.Frequency / 1000;
         private static bool _running;
-        private static List<TickStep> _tickSequence;
+        private static List<TickState> _tickSequence;
 
+        public static int DegreeOfParallelism { get; } = Environment.ProcessorCount;
         public static double TickDuration { get; private set; }
         public static long GameLoopTime { get; private set; }
-        public static string ActiveService { get; set; }
-
-        // This is unrelated to the game loop and should probably be moved elsewhere.
-        public static long GetRealTime()
-        {
-            return Stopwatch.GetTimestamp() / _stopwatchFrequencyMilliseconds;
-        }
+        public static IGameService ActiveService { get; private set; }
 
         public static bool Init()
         {
             if (Interlocked.CompareExchange(ref _running, true, false))
                 return false;
 
-            TickDuration = 1000 / Properties.GAME_LOOP_TICK_RATE;
+            TickDuration = 1000.0 / Properties.GAME_LOOP_TICK_RATE;
 
             _gameLoopThread = new(new ThreadStart(Run))
             {
@@ -73,6 +66,11 @@ namespace DOL.GS
             _threadPool.ExecuteForEach(items, toExclusive, action);
         }
 
+        public static void ExecuteForEachSharded<T>(List<T>[] shards, int[] shardStartIndices, int totalCount, Action<T> action)
+        {
+            _threadPool.ExecuteForEachSharded(shards, shardStartIndices, totalCount, action);
+        }
+
         public static T GetObjectForTick<T>() where T : IPooledObject<T>, new()
         {
             return _threadPool != null ? _threadPool.GetObjectForTick<T>() : new();
@@ -85,10 +83,10 @@ namespace DOL.GS
 
         private static void Run()
         {
-            if (Environment.ProcessorCount == 1)
+            if (DegreeOfParallelism == 1)
                 _threadPool = new GameLoopThreadPoolSingleThreaded();
             else
-                _threadPool = new GameLoopThreadPoolMultiThreaded(Environment.ProcessorCount);
+                _threadPool = new GameLoopThreadPoolMultiThreaded(DegreeOfParallelism);
 
             _threadPool.Init(); // Must be done from the game loop thread.
             BuildTickSequence();
@@ -120,18 +118,12 @@ namespace DOL.GS
 
             for (int i = 0; i < _tickSequence.Count; i++)
             {
-                TickStep tickStep = _tickSequence[i];
-                ExecutionContext.Run(tickStep.Context, TickCallback, tickStep.State);
-            }
-
-            Diagnostics.StopPerfCounter(THREAD_NAME);
-            Diagnostics.Tick();
-
-            static void TickCallback(object state)
-            {
-                TickState tickState = (TickState) state;
-                ActiveService = tickState.ProfileKey;
-                Diagnostics.StartPerfCounter(ActiveService);
+                TickState tickState = _tickSequence[i];
+                SynchronizationContext prevCtx = SynchronizationContext.Current;
+                GameServiceSynchronizationContext newCtx = tickState.ServiceContext;
+                SynchronizationContext.SetSynchronizationContext(newCtx);
+                ActiveService = newCtx.TargetService;
+                Diagnostics.StartPerfCounter(tickState.ProfileKey);
 
                 try
                 {
@@ -139,10 +131,14 @@ namespace DOL.GS
                 }
                 finally
                 {
-                    Diagnostics.StopPerfCounter(ActiveService);
-                    ActiveService = string.Empty;
+                    SynchronizationContext.SetSynchronizationContext(prevCtx);
+                    Diagnostics.StopPerfCounter(tickState.ProfileKey);
+                    ActiveService = null;
                 }
             }
+
+            Diagnostics.StopPerfCounter(THREAD_NAME);
+            Diagnostics.Tick();
         }
 
         private static void BuildTickSequence()
@@ -156,36 +152,26 @@ namespace DOL.GS
             AddStep(AttackService.Instance, AttackService.Instance.Tick);
             AddStep(CastingService.Instance, CastingService.Instance.Tick);
             AddStep(EffectService.Instance, EffectService.Instance.Tick);
-            AddStep(EffectListService.Instance, EffectListService.Instance.Tick);
+            AddStep(EffectListService.Instance, EffectListService.Instance.BeginTick);
+            AddStep(EffectListService.Instance, EffectListService.Instance.EndTick);
             AddStep(MovementService.Instance, MovementService.Instance.Tick);
             AddStep(CraftingService.Instance, CraftingService.Instance.Tick);
             AddStep(ReaperService.Instance, ReaperService.Instance.Tick);
             AddStep(ZoneService.Instance, ZoneService.Instance.Tick);
             AddStep(ClientService.Instance, ClientService.Instance.EndTick);
-            AddStep(DailyQuestService.Instance, DailyQuestService.Instance.Tick);
-            AddStep(WeeklyQuestService.Instance, WeeklyQuestService.Instance.Tick);
-            AddStep(MonthlyQuestService.Instance, MonthlyQuestService.Instance.Tick);
+            AddStep(RolloverSchedulerService.Instance, RolloverSchedulerService.Instance.Tick);
 
-            GameServiceContext.Current.Value = null;
+            // The following services tick via RolloverSchedulerService.
+            PeriodicQuestService.Initialize();
+            HouseRentService.Initialize();
+            GravestoneService.Initialize();
 
             static void AddStep(IGameService service, Action action)
             {
                 string methodName = action.Method.Name;
                 string profileKey = methodName == nameof(IGameService.Tick) ? service.ServiceName : $"{service.ServiceName}.{methodName}";
-                GameServiceContext.Current.Value = service;
-                _tickSequence.Add(new(new(action, profileKey), ExecutionContext.Capture()));
-            }
-        }
-
-        private sealed class TickStep
-        {
-            public readonly TickState State;
-            public readonly ExecutionContext Context;
-
-            public TickStep(TickState state, ExecutionContext context)
-            {
-                State = state;
-                Context = context;
+                GameServiceSynchronizationContext serviceContext = GameServiceContext.GetContextFor(service);
+                _tickSequence.Add(new(action, profileKey, serviceContext));
             }
         }
 
@@ -193,11 +179,13 @@ namespace DOL.GS
         {
             public readonly Action TickAction;
             public readonly string ProfileKey;
+            public readonly GameServiceSynchronizationContext ServiceContext;
 
-            public TickState(Action tickAction, string profileKey)
+            public TickState(Action tickAction, string profileKey, GameServiceSynchronizationContext serviceContext)
             {
                 TickAction = tickAction;
                 ProfileKey = profileKey;
+                ServiceContext = serviceContext;
             }
         }
     }

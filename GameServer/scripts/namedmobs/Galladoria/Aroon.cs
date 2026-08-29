@@ -17,15 +17,15 @@ namespace DOL.GS
         {
         }
 
-        public static bool Aroon_slash = false;
-        public static bool Aroon_crush = false;
-        public static bool Aroon_thrust = false;
-        public static bool Aroon_body = false;
-        public static bool Aroon_cold = false;
-        public static bool Aroon_energy = false;
-        public static bool Aroon_heat = false;
-        public static bool Aroon_matter = false;
-        public static bool Aroon_spirit = false;
+        public bool Aroon_slash = false;
+        public bool Aroon_crush = false;
+        public bool Aroon_thrust = false;
+        public bool Aroon_body = false;
+        public bool Aroon_cold = false;
+        public bool Aroon_energy = false;
+        public bool Aroon_heat = false;
+        public bool Aroon_matter = false;
+        public bool Aroon_spirit = false;
 
         #region Aroon resist damage checks
         public override void TakeDamage(GameObject source, eDamageType damageType, int damageAmount, int criticalAmount)
@@ -330,19 +330,8 @@ namespace DOL.GS
             Aroon_matter = false;
             Aroon_spirit = false;
 
-            CorpScaithBrain.switch_target = false;
-            SpioradScaithBrain.switch_target = false;
-            RopadhScaithBrain.switch_target = false;
-            DamhnaScaithBrain.switch_target = false;
-            FuinneamgScaithBrain.switch_target = false;
-            BruScaithBrain.switch_target = false;
-            FuarScaithBrain.switch_target = false;
-            TaesScaithBrain.switch_target = false;
-            ScorScaithBrain.switch_target = false;
-
             AroonBrain sBrain = new AroonBrain();
             SetOwnBrain(sBrain);
-            AroonBrain.spawn_guardians = false;
             return base.AddToWorld();
         }
 
@@ -425,25 +414,18 @@ namespace DOL.AI.Brain
                 //set state to RETURN TO SPAWN
                 FSM.SetCurrentState(eFSMStateType.RETURN_TO_SPAWN);
                 Body.Health = Body.MaxHealth;
-                Aroon.Aroon_slash = false;
-                Aroon.Aroon_thrust = false;
-                Aroon.Aroon_crush = false;
-                Aroon.Aroon_body = false;
-                Aroon.Aroon_cold = false;
-                Aroon.Aroon_energy = false;
-                Aroon.Aroon_heat = false;
-                Aroon.Aroon_matter = false;
-                Aroon.Aroon_spirit = false;
-
-                CorpScaithBrain.switch_target = false;
-                SpioradScaithBrain.switch_target = false;
-                RopadhScaithBrain.switch_target = false;
-                DamhnaScaithBrain.switch_target = false;
-                FuinneamgScaithBrain.switch_target = false;
-                BruScaithBrain.switch_target = false;
-                FuarScaithBrain.switch_target = false;
-                TaesScaithBrain.switch_target = false;
-                ScorScaithBrain.switch_target = false;
+                if (Body is Aroon boss)
+                {
+                    boss.Aroon_slash = false;
+                    boss.Aroon_thrust = false;
+                    boss.Aroon_crush = false;
+                    boss.Aroon_body = false;
+                    boss.Aroon_cold = false;
+                    boss.Aroon_energy = false;
+                    boss.Aroon_heat = false;
+                    boss.Aroon_matter = false;
+                    boss.Aroon_spirit = false;
+                }
 
                 spawn_guardians = false;
                 if (!RemoveAdds)
@@ -479,15 +461,18 @@ namespace DOL.AI.Brain
             base.Think();
         }
 
-        public static bool spawn_guardians = false;
+        public bool spawn_guardians = false;
         public void SpawnGuardians()
         {
+            Aroon owner = Body as Aroon;
+
             CorpScaith Add = new CorpScaith();
             Add.X = Body.X + Util.Random(-100, 150);
             Add.Y = Body.Y + Util.Random(-100, 150);
             Add.Z = Body.Z;
             Add.CurrentRegion = Body.CurrentRegion;
             Add.Heading = Body.Heading;
+            Add.Owner = owner;
             Add.AddToWorld();
 
             SpioradScaith Add2 = new SpioradScaith();
@@ -496,6 +481,7 @@ namespace DOL.AI.Brain
             Add2.Z = Body.Z;
             Add2.CurrentRegion = Body.CurrentRegion;
             Add2.Heading = Body.Heading;
+            Add2.Owner = owner;
             Add2.AddToWorld();
 
             RopadhScaith Add3 = new RopadhScaith();
@@ -504,6 +490,7 @@ namespace DOL.AI.Brain
             Add3.Z = Body.Z;
             Add3.CurrentRegion = Body.CurrentRegion;
             Add3.Heading = Body.Heading;
+            Add3.Owner = owner;
             Add3.AddToWorld();
 
             DamhnaScaith Add4 = new DamhnaScaith();
@@ -512,6 +499,7 @@ namespace DOL.AI.Brain
             Add4.Z = Body.Z;
             Add4.CurrentRegion = Body.CurrentRegion;
             Add4.Heading = Body.Heading;
+            Add4.Owner = owner;
             Add4.AddToWorld();
 
             FuinneamgScaith Add5 = new FuinneamgScaith();
@@ -520,6 +508,7 @@ namespace DOL.AI.Brain
             Add5.Z = Body.Z;
             Add5.CurrentRegion = Body.CurrentRegion;
             Add5.Heading = Body.Heading;
+            Add5.Owner = owner;
             Add5.AddToWorld();
 
             BruScaith Add6 = new BruScaith();
@@ -528,6 +517,7 @@ namespace DOL.AI.Brain
             Add6.Z = Body.Z;
             Add6.CurrentRegion = Body.CurrentRegion;
             Add6.Heading = Body.Heading;
+            Add6.Owner = owner;
             Add6.AddToWorld();
 
             FuarScaith Add7 = new FuarScaith();
@@ -536,6 +526,7 @@ namespace DOL.AI.Brain
             Add7.Z = Body.Z;
             Add7.CurrentRegion = Body.CurrentRegion;
             Add7.Heading = Body.Heading;
+            Add7.Owner = owner;
             Add7.AddToWorld();
 
             TaesScaith Add8 = new TaesScaith();
@@ -544,6 +535,7 @@ namespace DOL.AI.Brain
             Add8.Z = Body.Z;
             Add8.CurrentRegion = Body.CurrentRegion;
             Add8.Heading = Body.Heading;
+            Add8.Owner = owner;
             Add8.AddToWorld();
 
             ScorScaith Add9 = new ScorScaith();
@@ -552,6 +544,7 @@ namespace DOL.AI.Brain
             Add9.Z = Body.Z;
             Add9.CurrentRegion = Body.CurrentRegion;
             Add9.Heading = Body.Heading;
+            Add9.Owner = owner;
             Add9.AddToWorld();
         }
 
@@ -575,13 +568,12 @@ namespace DOL.AI.Brain
                     spell.Radius = 1200;
                     spell.Range = 1500;
                     spell.SpellID = 117230;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = "SpeedDecrease";
                     spell.Uninterruptible = true;
                     spell.MoveCast = true;
                     spell.DamageType = (int) eDamageType.Matter;
                     m_AroonRoot = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_AroonRoot);
                 }
 
                 return m_AroonRoot;
@@ -603,6 +595,7 @@ namespace DOL.GS
         public CorpScaith() : base()
         {
         }
+        public Aroon Owner;
         public override int GetResist(eDamageType damageType)
         {
             switch (damageType)
@@ -638,13 +631,18 @@ namespace DOL.GS
 
         public override void Die(GameObject killer) //slash resist
         {
-            Aroon.Aroon_slash = true;
             base.Die(null); // null to not gain experience
+        }
+
+        public override void ProcessDeath(GameObject killer)
+        {
+            if (Owner != null)
+                Owner.Aroon_slash = true;
+            base.ProcessDeath(killer);
         }
 
         public override bool AddToWorld()
         {
-            CorpScaithBrain.Message1 = false;
             Model = (ushort) Util.Random(889, 890);
             Name = "Corp Scaith";
             RespawnInterval = -1;
@@ -686,7 +684,7 @@ namespace DOL.AI.Brain
                 player.Out.SendMessage(message, eChatType.CT_Broadcast, eChatLoc.CL_SystemWindow);
             }
         }
-        public static bool switch_target = false;
+        public bool switch_target = false;
         private GamePlayer randomtarget = null;
 
         private GamePlayer RandomTarget
@@ -699,22 +697,18 @@ namespace DOL.AI.Brain
 
         public int RandomAttackTarget(ECSGameTimer timer)
         {
-            //IList enemies = new ArrayList(AggroTable.Keys);
-            if (PlayersToAttack.Count == 0)
-            {
-                //do nothing
-            }
-            else
+            if (PlayersToAttack.Count > 0)
             {
                 RandomTarget = PlayersToAttack[Util.Random(0, PlayersToAttack.Count - 1)];
-                AggroList.Clear();
-                AggroList.TryAdd(RandomTarget, new(500));
+                ClearAggroList();
+                AddToAggroList(RandomTarget);
                 switch_target = false;
             }
 
+
             return 0;
         }
-        public static bool Message1 = false;
+        public bool Message1 = false;
         public override void Think()
         {
             if(Message1==false)
@@ -767,6 +761,7 @@ namespace DOL.GS
         public SpioradScaith() : base()
         {
         }
+        public Aroon Owner;
         public override int GetResist(eDamageType damageType)
         {
             switch (damageType)
@@ -803,15 +798,21 @@ namespace DOL.GS
 
         public override void Die(GameObject killer)
         {
-            Aroon.Aroon_thrust = true;
             base.Die(null); // null to not gain experience
+        }
+
+        public override void ProcessDeath(GameObject killer)
+        {
+            if (Owner != null)
+                Owner.Aroon_thrust = true;
+            base.ProcessDeath(killer);
         }
 
         public override void TakeDamage(GameObject source, eDamageType damageType, int damageAmount, int criticalAmount)
         {
             if (source is GamePlayer || source is GameSummonedPet)
             {
-                if (Aroon.Aroon_slash)
+                if (Owner == null || Owner.Aroon_slash)
                 {
                     base.TakeDamage(source, damageType, damageAmount, criticalAmount);
                 }
@@ -834,7 +835,6 @@ namespace DOL.GS
 
         public override bool AddToWorld()
         {
-            SpioradScaithBrain.Message2 = false;
             Model = (ushort) Util.Random(889, 890);
             Name = "Spiorad Scaith";
             RespawnInterval = -1;
@@ -876,7 +876,7 @@ namespace DOL.AI.Brain
                 player.Out.SendMessage(message, eChatType.CT_Broadcast, eChatLoc.CL_SystemWindow);
             }
         }
-        public static bool switch_target = false;
+        public bool switch_target = false;
         private GamePlayer randomtarget = null;
         private GamePlayer RandomTarget
         {
@@ -886,24 +886,22 @@ namespace DOL.AI.Brain
         public List<GamePlayer> PlayersToAttack = new List<GamePlayer>();
         public int RandomAttackTarget(ECSGameTimer timer)
         {
-            //IList enemies = new ArrayList(AggroTable.Keys);
-            if (PlayersToAttack.Count == 0)
-            {
-                //do nothing
-            }
-            else
+            if (PlayersToAttack.Count > 0)
             {
                 RandomTarget = PlayersToAttack[Util.Random(0, PlayersToAttack.Count - 1)];
-                AggroList.Clear();
-                AggroList.TryAdd(RandomTarget, new(500));
+                ClearAggroList();
+                AddToAggroList(RandomTarget);
                 switch_target = false;
             }
+
+
             return 0;
         }
-        public static bool Message2 = false;
+        public bool Message2 = false;
         public override void Think()
         {
-            if(Aroon.Aroon_slash && Message2==false)
+            Aroon boss = (Body as SpioradScaith)?.Owner;
+            if(boss != null && boss.Aroon_slash && Message2==false)
             {
                 BroadcastMessage(String.Format(Body.Name + " eyes are glowing, indicating he's being controlled by Aroon."));
                 Message2 = true;
@@ -951,6 +949,7 @@ namespace DOL.GS
         public RopadhScaith() : base()
         {
         }
+        public Aroon Owner;
         public override int GetResist(eDamageType damageType)
         {
             switch (damageType)
@@ -986,15 +985,21 @@ namespace DOL.GS
 
         public override void Die(GameObject killer)
         {
-            Aroon.Aroon_crush = true;
             base.Die(null); // null to not gain experience
+        }
+
+        public override void ProcessDeath(GameObject killer)
+        {
+            if (Owner != null)
+                Owner.Aroon_crush = true;
+            base.ProcessDeath(killer);
         }
 
         public override void TakeDamage(GameObject source, eDamageType damageType, int damageAmount, int criticalAmount)
         {
             if (source is GamePlayer || source is GameSummonedPet)
             {
-                if (Aroon.Aroon_slash && Aroon.Aroon_thrust)
+                if (Owner == null || (Owner.Aroon_slash && Owner.Aroon_thrust))
                 {
                     base.TakeDamage(source, damageType, damageAmount, criticalAmount);
                 }
@@ -1017,7 +1022,6 @@ namespace DOL.GS
 
         public override bool AddToWorld()
         {
-            RopadhScaithBrain.Message3 = false;
             Model = (ushort) Util.Random(889, 890);
             Name = "Ropadh Scaith";
             RespawnInterval = -1;
@@ -1059,7 +1063,7 @@ namespace DOL.AI.Brain
                 player.Out.SendMessage(message, eChatType.CT_Broadcast, eChatLoc.CL_SystemWindow);
             }
         }
-        public static bool switch_target = false;
+        public bool switch_target = false;
         private GamePlayer randomtarget = null;
 
         private GamePlayer RandomTarget
@@ -1072,25 +1076,22 @@ namespace DOL.AI.Brain
 
         public int RandomAttackTarget(ECSGameTimer timer)
         {
-            //IList enemies = new ArrayList(AggroTable.Keys);
-            if (PlayersToAttack.Count == 0)
-            {
-                //do nothing
-            }
-            else
+            if (PlayersToAttack.Count > 0)
             {
                 RandomTarget = PlayersToAttack[Util.Random(0, PlayersToAttack.Count - 1)];
-                AggroList.Clear();
-                AggroList.TryAdd(RandomTarget, new(500));
+                ClearAggroList();
+                AddToAggroList(RandomTarget);
                 switch_target = false;
             }
 
+
             return 0;
         }
-        public static bool Message3 = false;
+        public bool Message3 = false;
         public override void Think()
         {
-            if (Aroon.Aroon_thrust && Message3 == false)
+            Aroon boss = (Body as RopadhScaith)?.Owner;
+            if (boss != null && boss.Aroon_thrust && Message3 == false)
             {
                 BroadcastMessage(String.Format(Body.Name + " eyes are glowing, indicating he's being controlled by Aroon."));
                 Message3 = true;
@@ -1140,6 +1141,7 @@ namespace DOL.GS
         public DamhnaScaith() : base()
         {
         }
+        public Aroon Owner;
         public override int GetResist(eDamageType damageType)
         {
             switch (damageType)
@@ -1175,15 +1177,21 @@ namespace DOL.GS
 
         public override void Die(GameObject killer)
         {
-            Aroon.Aroon_body = true;
             base.Die(null); // null to not gain experience
+        }
+
+        public override void ProcessDeath(GameObject killer)
+        {
+            if (Owner != null)
+                Owner.Aroon_body = true;
+            base.ProcessDeath(killer);
         }
 
         public override void TakeDamage(GameObject source, eDamageType damageType, int damageAmount, int criticalAmount)
         {
             if (source is GamePlayer || source is GameSummonedPet)
             {
-                if (Aroon.Aroon_slash && Aroon.Aroon_thrust && Aroon.Aroon_crush)
+                if (Owner == null || (Owner.Aroon_slash && Owner.Aroon_thrust && Owner.Aroon_crush))
                 {
                     base.TakeDamage(source, damageType, damageAmount, criticalAmount);
                 }
@@ -1206,7 +1214,6 @@ namespace DOL.GS
 
         public override bool AddToWorld()
         {
-            DamhnaScaithBrain.Message4 = false;
             Model = (ushort) Util.Random(889, 890);
             Name = "Damhna Scaith";
             RespawnInterval = -1;
@@ -1248,7 +1255,7 @@ namespace DOL.AI.Brain
                 player.Out.SendMessage(message, eChatType.CT_Broadcast, eChatLoc.CL_SystemWindow);
             }
         }
-        public static bool switch_target = false;
+        public bool switch_target = false;
         private GamePlayer randomtarget = null;
 
         private GamePlayer RandomTarget
@@ -1261,25 +1268,22 @@ namespace DOL.AI.Brain
 
         public int RandomAttackTarget(ECSGameTimer timer)
         {
-            //IList enemies = new ArrayList(AggroTable.Keys);
-            if (PlayersToAttack.Count == 0)
-            {
-                //do nothing
-            }
-            else
+            if (PlayersToAttack.Count > 0)
             {
                 RandomTarget = PlayersToAttack[Util.Random(0, PlayersToAttack.Count - 1)];
-                AggroList.Clear();
-                AggroList.TryAdd(RandomTarget, new(500));
+                ClearAggroList();
+                AddToAggroList(RandomTarget);
                 switch_target = false;
             }
 
+
             return 0;
         }
-        public static bool Message4 = false;
+        public bool Message4 = false;
         public override void Think()
         {
-            if (Aroon.Aroon_crush && Message4 == false)
+            Aroon boss = (Body as DamhnaScaith)?.Owner;
+            if (boss != null && boss.Aroon_crush && Message4 == false)
             {
                 BroadcastMessage(String.Format(Body.Name + " eyes are glowing, indicating he's being controlled by Aroon."));
                 Message4 = true;
@@ -1329,6 +1333,7 @@ namespace DOL.GS
         public FuinneamgScaith() : base()
         {
         }
+        public Aroon Owner;
         public override int GetResist(eDamageType damageType)
         {
             switch (damageType)
@@ -1364,16 +1369,22 @@ namespace DOL.GS
 
         public override void Die(GameObject killer)
         {
-            Aroon.Aroon_cold = true;
             base.Die(null); // null to not gain experience
+        }
+
+        public override void ProcessDeath(GameObject killer)
+        {
+            if (Owner != null)
+                Owner.Aroon_cold = true;
+            base.ProcessDeath(killer);
         }
 
         public override void TakeDamage(GameObject source, eDamageType damageType, int damageAmount, int criticalAmount)
         {
             if (source is GamePlayer || source is GameSummonedPet)
             {
-                if (Aroon.Aroon_slash && Aroon.Aroon_thrust && Aroon.Aroon_crush &&
-                    Aroon.Aroon_body)
+                if (Owner == null || (Owner.Aroon_slash && Owner.Aroon_thrust && Owner.Aroon_crush &&
+                    Owner.Aroon_body))
                 {
                     base.TakeDamage(source, damageType, damageAmount, criticalAmount);
                 }
@@ -1396,7 +1407,6 @@ namespace DOL.GS
 
         public override bool AddToWorld()
         {
-            FuinneamgScaithBrain.Message5 = false;
             Model = (ushort) Util.Random(889, 890);
             Name = "Fuinneamg Scaith";
             Strength = 350;
@@ -1438,7 +1448,7 @@ namespace DOL.AI.Brain
                 player.Out.SendMessage(message, eChatType.CT_Broadcast, eChatLoc.CL_SystemWindow);
             }
         }
-        public static bool switch_target = false;
+        public bool switch_target = false;
         private GamePlayer randomtarget = null;
 
         private GamePlayer RandomTarget
@@ -1451,26 +1461,23 @@ namespace DOL.AI.Brain
 
         public int RandomAttackTarget(ECSGameTimer timer)
         {
-            //IList enemies = new ArrayList(AggroTable.Keys);
-            if (PlayersToAttack.Count == 0)
-            {
-                //do nothing
-            }
-            else
+            if (PlayersToAttack.Count > 0)
             {
                 RandomTarget = PlayersToAttack[Util.Random(0, PlayersToAttack.Count - 1)];
-                AggroList.Clear();
-                AggroList.TryAdd(RandomTarget, new(500));
+                ClearAggroList();
+                AddToAggroList(RandomTarget);
                 switch_target = false;
             }
+
 
             return 0;
         }
 
-        public static bool Message5 = false;
+        public bool Message5 = false;
         public override void Think()
         {
-            if (Aroon.Aroon_body && Message5 == false)
+            Aroon boss = (Body as FuinneamgScaith)?.Owner;
+            if (boss != null && boss.Aroon_body && Message5 == false)
             {
                 BroadcastMessage(String.Format(Body.Name + " eyes are glowing, indicating he's being controlled by Aroon."));
                 Message5 = true;
@@ -1520,6 +1527,7 @@ namespace DOL.GS
         public BruScaith() : base()
         {
         }
+        public Aroon Owner;
         public override int GetResist(eDamageType damageType)
         {
             switch (damageType)
@@ -1555,16 +1563,22 @@ namespace DOL.GS
 
         public override void Die(GameObject killer)
         {
-            Aroon.Aroon_energy = true;
             base.Die(null); // null to not gain experience
+        }
+
+        public override void ProcessDeath(GameObject killer)
+        {
+            if (Owner != null)
+                Owner.Aroon_energy = true;
+            base.ProcessDeath(killer);
         }
 
         public override void TakeDamage(GameObject source, eDamageType damageType, int damageAmount, int criticalAmount)
         {
             if (source is GamePlayer || source is GameSummonedPet)
             {
-                if (Aroon.Aroon_slash && Aroon.Aroon_thrust && Aroon.Aroon_crush &&
-                    Aroon.Aroon_body && Aroon.Aroon_cold)
+                if (Owner == null || (Owner.Aroon_slash && Owner.Aroon_thrust && Owner.Aroon_crush &&
+                    Owner.Aroon_body && Owner.Aroon_cold))
                 {
                     base.TakeDamage(source, damageType, damageAmount, criticalAmount);
                 }
@@ -1587,7 +1601,6 @@ namespace DOL.GS
 
         public override bool AddToWorld()
         {
-            BruScaithBrain.Message6 = false;
             Model = (ushort) Util.Random(889, 890);
             Name = "Bru Scaith";
             RespawnInterval = -1;
@@ -1629,7 +1642,7 @@ namespace DOL.AI.Brain
                 player.Out.SendMessage(message, eChatType.CT_Broadcast, eChatLoc.CL_SystemWindow);
             }
         }
-        public static bool switch_target = false;
+        public bool switch_target = false;
         private GamePlayer randomtarget = null;
 
         private GamePlayer RandomTarget
@@ -1642,26 +1655,23 @@ namespace DOL.AI.Brain
 
         public int RandomAttackTarget(ECSGameTimer timer)
         {
-            //IList enemies = new ArrayList(AggroTable.Keys);
-            if (PlayersToAttack.Count == 0)
-            {
-                //do nothing
-            }
-            else
+            if (PlayersToAttack.Count > 0)
             {
                 RandomTarget = PlayersToAttack[Util.Random(0, PlayersToAttack.Count - 1)];
-                AggroList.Clear();
-                AggroList.TryAdd(RandomTarget, new(500));
+                ClearAggroList();
+                AddToAggroList(RandomTarget);
                 switch_target = false;
             }
+
 
             return 0;
         }
 
-        public static bool Message6 = false;
+        public bool Message6 = false;
         public override void Think()
         {
-            if (Aroon.Aroon_cold && Message6 == false)
+            Aroon boss = (Body as BruScaith)?.Owner;
+            if (boss != null && boss.Aroon_cold && Message6 == false)
             {
                 BroadcastMessage(String.Format(Body.Name + " eyes are glowing, indicating he's being controlled by Aroon."));
                 Message6 = true;
@@ -1711,6 +1721,7 @@ namespace DOL.GS
         public FuarScaith() : base()
         {
         }
+        public Aroon Owner;
         public override int GetResist(eDamageType damageType)
         {
             switch (damageType)
@@ -1746,16 +1757,22 @@ namespace DOL.GS
 
         public override void Die(GameObject killer)
         {
-            Aroon.Aroon_heat = true;
             base.Die(null); // null to not gain experience
+        }
+
+        public override void ProcessDeath(GameObject killer)
+        {
+            if (Owner != null)
+                Owner.Aroon_heat = true;
+            base.ProcessDeath(killer);
         }
 
         public override void TakeDamage(GameObject source, eDamageType damageType, int damageAmount, int criticalAmount)
         {
             if (source is GamePlayer || source is GameSummonedPet)
             {
-                if (Aroon.Aroon_slash && Aroon.Aroon_thrust && Aroon.Aroon_crush &&
-                    Aroon.Aroon_body && Aroon.Aroon_cold && Aroon.Aroon_energy)
+                if (Owner == null || (Owner.Aroon_slash && Owner.Aroon_thrust && Owner.Aroon_crush &&
+                    Owner.Aroon_body && Owner.Aroon_cold && Owner.Aroon_energy))
                 {
                     base.TakeDamage(source, damageType, damageAmount, criticalAmount);
                 }
@@ -1778,7 +1795,6 @@ namespace DOL.GS
 
         public override bool AddToWorld()
         {
-            FuarScaithBrain.Message7 = false;
             Model = (ushort) Util.Random(889, 890);
             Name = "Fuar Scaith";
             RespawnInterval = -1;
@@ -1820,7 +1836,7 @@ namespace DOL.AI.Brain
                 player.Out.SendMessage(message, eChatType.CT_Broadcast, eChatLoc.CL_SystemWindow);
             }
         }
-        public static bool switch_target = false;
+        public bool switch_target = false;
         private GamePlayer randomtarget = null;
 
         private GamePlayer RandomTarget
@@ -1833,26 +1849,23 @@ namespace DOL.AI.Brain
 
         public int RandomAttackTarget(ECSGameTimer timer)
         {
-            //IList enemies = new ArrayList(AggroTable.Keys);
-            if (PlayersToAttack.Count == 0)
-            {
-                //do nothing
-            }
-            else
+            if (PlayersToAttack.Count > 0)
             {
                 RandomTarget = PlayersToAttack[Util.Random(0, PlayersToAttack.Count - 1)];
-                AggroList.Clear();
-                AggroList.TryAdd(RandomTarget, new(500));
+                ClearAggroList();
+                AddToAggroList(RandomTarget);
                 switch_target = false;
             }
+
 
             return 0;
         }
 
-        public static bool Message7 = false;
+        public bool Message7 = false;
         public override void Think()
         {
-            if (Aroon.Aroon_energy && Message7 == false)
+            Aroon boss = (Body as FuarScaith)?.Owner;
+            if (boss != null && boss.Aroon_energy && Message7 == false)
             {
                 BroadcastMessage(String.Format(Body.Name + " eyes are glowing, indicating he's being controlled by Aroon."));
                 Message7 = true;
@@ -1902,6 +1915,7 @@ namespace DOL.GS
         public TaesScaith() : base()
         {
         }
+        public Aroon Owner;
         public override int GetResist(eDamageType damageType)
         {
             switch (damageType)
@@ -1937,17 +1951,23 @@ namespace DOL.GS
 
         public override void Die(GameObject killer)
         {
-            Aroon.Aroon_matter = true;
             base.Die(null); // null to not gain experience
+        }
+
+        public override void ProcessDeath(GameObject killer)
+        {
+            if (Owner != null)
+                Owner.Aroon_matter = true;
+            base.ProcessDeath(killer);
         }
 
         public override void TakeDamage(GameObject source, eDamageType damageType, int damageAmount, int criticalAmount)
         {
             if (source is GamePlayer || source is GameSummonedPet)
             {
-                if (Aroon.Aroon_slash && Aroon.Aroon_thrust && Aroon.Aroon_crush &&
-                    Aroon.Aroon_body && Aroon.Aroon_cold && Aroon.Aroon_energy
-                    && Aroon.Aroon_heat)
+                if (Owner == null || (Owner.Aroon_slash && Owner.Aroon_thrust && Owner.Aroon_crush &&
+                    Owner.Aroon_body && Owner.Aroon_cold && Owner.Aroon_energy
+                    && Owner.Aroon_heat))
                 {
                     base.TakeDamage(source, damageType, damageAmount, criticalAmount);
                 }
@@ -1970,7 +1990,6 @@ namespace DOL.GS
 
         public override bool AddToWorld()
         {
-            TaesScaithBrain.Message8 = false;
             Model = (ushort) Util.Random(889, 890);
             Name = "Taes Scaith";
             RespawnInterval = -1;
@@ -2012,7 +2031,7 @@ namespace DOL.AI.Brain
                 player.Out.SendMessage(message, eChatType.CT_Broadcast, eChatLoc.CL_SystemWindow);
             }
         }
-        public static bool switch_target = false;
+        public bool switch_target = false;
         private GamePlayer randomtarget = null;
 
         private GamePlayer RandomTarget
@@ -2025,26 +2044,23 @@ namespace DOL.AI.Brain
 
         public int RandomAttackTarget(ECSGameTimer timer)
         {
-            //IList enemies = new ArrayList(AggroTable.Keys);
-            if (PlayersToAttack.Count == 0)
-            {
-                //do nothing
-            }
-            else
+            if (PlayersToAttack.Count > 0)
             {
                 RandomTarget = PlayersToAttack[Util.Random(0, PlayersToAttack.Count - 1)];
-                AggroList.Clear();
-                AggroList.TryAdd(RandomTarget, new(500));
+                ClearAggroList();
+                AddToAggroList(RandomTarget);
                 switch_target = false;
             }
+
 
             return 0;
         }
 
-        public static bool Message8 = false;
+        public bool Message8 = false;
         public override void Think()
         {
-            if (Aroon.Aroon_heat && Message8 == false)
+            Aroon boss = (Body as TaesScaith)?.Owner;
+            if (boss != null && boss.Aroon_heat && Message8 == false)
             {
                 BroadcastMessage(String.Format(Body.Name + " eyes are glowing, indicating he's being controlled by Aroon."));
                 Message8 = true;
@@ -2094,6 +2110,7 @@ namespace DOL.GS
         public ScorScaith() : base()
         {
         }
+        public Aroon Owner;
         public override int GetResist(eDamageType damageType)
         {
             switch (damageType)
@@ -2129,17 +2146,23 @@ namespace DOL.GS
 
         public override void Die(GameObject killer)
         {
-            Aroon.Aroon_spirit = true;
             base.Die(null); // null to not gain experience
+        }
+
+        public override void ProcessDeath(GameObject killer)
+        {
+            if (Owner != null)
+                Owner.Aroon_spirit = true;
+            base.ProcessDeath(killer);
         }
 
         public override void TakeDamage(GameObject source, eDamageType damageType, int damageAmount, int criticalAmount)
         {
             if (source is GamePlayer || source is GameSummonedPet)
             {
-                if (Aroon.Aroon_slash && Aroon.Aroon_thrust && Aroon.Aroon_crush &&
-                    Aroon.Aroon_body && Aroon.Aroon_cold && Aroon.Aroon_energy
-                    && Aroon.Aroon_heat && Aroon.Aroon_matter)
+                if (Owner == null || (Owner.Aroon_slash && Owner.Aroon_thrust && Owner.Aroon_crush &&
+                    Owner.Aroon_body && Owner.Aroon_cold && Owner.Aroon_energy
+                    && Owner.Aroon_heat && Owner.Aroon_matter))
                 {
                     base.TakeDamage(source, damageType, damageAmount, criticalAmount);
                 }
@@ -2162,7 +2185,6 @@ namespace DOL.GS
 
         public override bool AddToWorld()
         {
-            ScorScaithBrain.Message9 = false;
             Model = (ushort) Util.Random(889, 890);
             Name = "Scor Scaith";
             RespawnInterval = -1;
@@ -2204,7 +2226,7 @@ namespace DOL.AI.Brain
                 player.Out.SendMessage(message, eChatType.CT_Broadcast, eChatLoc.CL_SystemWindow);
             }
         }
-        public static bool switch_target = false;
+        public bool switch_target = false;
         private GamePlayer randomtarget = null;
 
         private GamePlayer RandomTarget
@@ -2217,26 +2239,23 @@ namespace DOL.AI.Brain
 
         public int RandomAttackTarget(ECSGameTimer timer)
         {
-            //IList enemies = new ArrayList(AggroTable.Keys);
-            if (PlayersToAttack.Count == 0)
-            {
-                //do nothing
-            }
-            else
+            if (PlayersToAttack.Count > 0)
             {
                 RandomTarget = PlayersToAttack[Util.Random(0, PlayersToAttack.Count - 1)];
-                AggroList.Clear();
-                AggroList.TryAdd(RandomTarget, new(500));
+                ClearAggroList();
+                AddToAggroList(RandomTarget);
                 switch_target = false;
             }
+
 
             return 0;
         }
 
-        public static bool Message9 = false;
+        public bool Message9 = false;
         public override void Think()
         {
-            if (Aroon.Aroon_heat && Message9 == false)
+            Aroon boss = (Body as ScorScaith)?.Owner;
+            if (boss != null && boss.Aroon_heat && Message9 == false)
             {
                 BroadcastMessage(String.Format(Body.Name + " eyes are glowing, indicating he's being controlled by Aroon."));
                 Message9 = true;

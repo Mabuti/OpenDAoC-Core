@@ -9,7 +9,7 @@ namespace DOL.GS.Spells
 	[SpellHandler(eSpellType.AblativeArmor)]
 	public class AblativeArmorSpellHandler : SpellHandler
 	{
-		public override string ShortDescription => $"The target gains a temporary health buffer that absorbs {(Spell.Damage > 0 ? Spell.Damage : 25)}% of the physical damage dealt, up to a maximum of {Spell.Value} damage.";
+		public override string ShortDescription => $"The target gains a temporary health buffer that absorbs {(Spell.Damage > 0 ? Spell.Damage : 25)}% of the physical damage dealt, up to a maximum of {Spell.Value} damage{GetFrequencyAndDurationSuffix()}.";
 
 		public AblativeArmorSpellHandler(GameLiving caster, Spell spell, SpellLine line) : base(caster, spell, line) { }
 
@@ -21,7 +21,7 @@ namespace DOL.GS.Spells
 
 		public override ECSGameSpellEffect CreateECSEffect(in ECSGameEffectInitParams initParams)
 		{
-			return ECSGameEffectFactory.Create(initParams, static (in ECSGameEffectInitParams i) => new AblativeArmorECSGameEffect(i));
+			return ECSGameEffectFactory.Create(initParams, static (in i) => new AblativeArmorECSGameEffect(i));
 		}
 
 		public override void OnEffectStart(GameSpellEffect effect) { }
@@ -142,7 +142,7 @@ namespace DOL.GS.Spells
 	[SpellHandler(eSpellType.MagicAblativeArmor)]
 	public class MagicAblativeArmorSpellHandler : AblativeArmorSpellHandler
 	{
-		public override string ShortDescription => $"The target gains a temporary health buffer that absorbs {(Spell.Damage > 0 ? Spell.Damage : 25)}% of the magical damage dealt, up to a maximum of {Spell.Value} damage.";
+		public override string ShortDescription => $"The target gains a temporary health buffer that absorbs {(Spell.Damage > 0 ? Spell.Damage : 25)}% of the magical damage dealt, up to a maximum of {Spell.Value} damage{GetFrequencyAndDurationSuffix()}.";
 
 		public MagicAblativeArmorSpellHandler(GameLiving caster, Spell spell, SpellLine line) : base(caster, spell, line) { }
 
@@ -169,7 +169,7 @@ namespace DOL.GS.Spells
 	[SpellHandler(eSpellType.BothAblativeArmor)]
 	public class BothAblativeArmorSpellHandler : AblativeArmorSpellHandler
 	{
-		public override string ShortDescription => $"The target gains a temporary health buffer that absorbs {(Spell.Damage > 0 ? Spell.Damage : 25)}% of all damage dealt, up to a maximum of {Spell.Value} damage.";
+		public override string ShortDescription => $"The target gains a temporary health buffer that absorbs {(Spell.Damage > 0 ? Spell.Damage : 25)}% of all damage dealt, up to a maximum of {Spell.Value} damage{GetFrequencyAndDurationSuffix()}.";
 
 		public BothAblativeArmorSpellHandler(GameLiving caster, Spell spell, SpellLine line) : base(caster, spell, line) { }
 

@@ -1,85 +1,192 @@
-﻿using System.Collections.Concurrent;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
+using DOL.GS.ServerProperties;
 
 namespace DOL.GS
 {
     public class AttackerTracker
     {
-        private GameLiving _owner;
-        private AttackerCheckTimer _attackerCheckTimer;
-        private ConcurrentDictionary<GameLiving, AttackerInfo> _attackers = new();
-        private int _meleeCount = 0;
+        private readonly GameLiving _owner;
+        private readonly AttackerCheckTimer _attackerCheckTimer;
+        private readonly Lock _lock = new();
 
-        public int Count => _attackers.Count;
-        public int MeleeCount => Volatile.Read(ref _meleeCount);
-        public ICollection<GameLiving> Attackers => _attackers.Keys;
+        private readonly Dictionary<GameLiving, AttackerInfo> _attackers = new();
+        private int _meleeAttackerCount;
+
+        private GameLiving _lastInterrupter;
+        private long _interruptExpireTime;
+        private long _selfInterruptExpireTime;
+
+        public int Count
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _attackers.Count;
+                }
+            }
+        }
+
+        public int MeleeCount => Volatile.Read(ref _meleeAttackerCount);
+
+        public ICollection<GameLiving> Attackers
+        {
+            get
+            {
+                List<GameLiving> result = GameLoop.GetListForTick<GameLiving>();
+
+                lock (_lock)
+                {
+                    result.EnsureCapacity(_attackers.Count);
+
+                    foreach (GameLiving key in _attackers.Keys)
+                        result.Add(key);
+                }
+
+                return result;
+            }
+        }
 
         public AttackerTracker(GameLiving owner)
         {
+            ArgumentNullException.ThrowIfNull(owner);
+
             _owner = owner;
             _attackerCheckTimer = AttackerCheckTimer.Create(this);
         }
 
         public void AddOrUpdate(GameLiving attacker, bool isMelee, long expireTime)
         {
+            ArgumentNullException.ThrowIfNull(attacker);
+
             if (attacker == _owner)
                 return;
 
             AttackerInfo attackerInfo = new(isMelee, expireTime);
 
-            while (true)
+            lock (_lock)
             {
                 if (_attackers.TryGetValue(attacker, out AttackerInfo existing))
                 {
-                    if (_attackers.TryUpdate(attacker, attackerInfo, existing))
-                    {
-                        if (existing.IsMelee != isMelee)
-                        {
-                            if (isMelee)
-                                Interlocked.Increment(ref _meleeCount);
-                            else
-                                Interlocked.Decrement(ref _meleeCount);
-                        }
+                    _attackers[attacker] = attackerInfo;
 
-                        return;
+                    if (existing.IsMelee != isMelee)
+                    {
+                        if (isMelee)
+                            _meleeAttackerCount++;
+                        else
+                            _meleeAttackerCount--;
                     }
                 }
-                else if (_attackers.TryAdd(attacker, attackerInfo))
+                else
                 {
+                    _attackers.Add(attacker, attackerInfo);
                     _attackerCheckTimer.WakeUp();
 
                     if (isMelee)
-                        Interlocked.Increment(ref _meleeCount);
-
-                    return;
+                        _meleeAttackerCount++;
                 }
             }
         }
 
         public bool ContainsAttacker(GameLiving attacker)
         {
-            return _attackers.ContainsKey(attacker);
+            ArgumentNullException.ThrowIfNull(attacker);
+
+            lock (_lock)
+            {
+                return _attackers.ContainsKey(attacker);
+            }
+        }
+
+        public void SetInterrupt(GameLiving interrupter, long expireTime)
+        {
+            ArgumentNullException.ThrowIfNull(interrupter);
+
+            lock (_lock)
+            {
+                // Don't update the interrupt expire time if it's earlier than the current one.
+                if (_interruptExpireTime >= expireTime)
+                    return;
+
+                _lastInterrupter = interrupter;
+                _interruptExpireTime = expireTime;
+                _attackerCheckTimer.WakeUp();
+            }
+        }
+
+        public void SetSelfInterrupt(long expireTime)
+        {
+            lock (_lock)
+            {
+                _selfInterruptExpireTime = expireTime;
+            }
+        }
+
+        public bool IsInterrupted(out GameLiving lastInterrupter)
+        {
+            lastInterrupter = null;
+
+            lock (_lock)
+            {
+                if (_interruptExpireTime > GameLoop.GameLoopTime)
+                {
+                    lastInterrupter = _lastInterrupter;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool IsSelfInterrupted()
+        {
+            return Volatile.Read(ref _selfInterruptExpireTime) > GameLoop.GameLoopTime;
+        }
+
+        public bool IsInterruptedOrSelfInterrupted()
+        {
+            return IsInterrupted(out _) || IsSelfInterrupted();
+        }
+
+        public long GetInterruptRemainingDuration()
+        {
+            // If HARD_INTERRUPT_ON_ATTACKED is true, there is no distinction between _selfInterruptTime and _interruptTime.
+            long interruptTime = Properties.HARD_INTERRUPT_ON_ATTACKED ?
+                Math.Max(Volatile.Read(ref _selfInterruptExpireTime), Volatile.Read(ref _interruptExpireTime)) :
+                Volatile.Read(ref _selfInterruptExpireTime);
+            return Math.Max(0, interruptTime - GameLoop.GameLoopTime);
         }
 
         public void Clear()
         {
-            _attackers.Clear();
-            Interlocked.Exchange(ref _meleeCount, 0);
-            _attackerCheckTimer.Stop();
-        }
-
-        private readonly struct AttackerInfo
-        {
-            public readonly bool IsMelee;
-            public readonly long ExpireTime;
-
-            public AttackerInfo(bool isMelee, long expireTime)
+            lock (_lock)
             {
-                IsMelee = isMelee;
-                ExpireTime = expireTime;
+                _attackers.Clear();
+                _meleeAttackerCount = 0;
+                _lastInterrupter = null;
+                _interruptExpireTime = 0;
+                _selfInterruptExpireTime = 0;
+                _attackerCheckTimer.Stop();
             }
         }
+
+        private bool TryClearInterrupt()
+        {
+            lock (_lock)
+            {
+                if (_interruptExpireTime > GameLoop.GameLoopTime)
+                    return false;
+
+                _lastInterrupter = null;
+            }
+
+            return true;
+        }
+
+        private readonly record struct AttackerInfo(bool IsMelee, long ExpireTime);
 
         private class StandardAttackerCheckTimer : AttackerCheckTimer
         {
@@ -87,10 +194,13 @@ namespace DOL.GS
 
             protected override int OnTick(ECSGameTimer timer)
             {
-                foreach (var pair in _attackerTracker._attackers)
-                    TryRemoveAttacker(pair);
+                lock (_attackerTracker._lock)
+                {
+                    foreach (var pair in _attackerTracker._attackers)
+                        TryRemoveAttacker(pair);
 
-                return base.OnTick(timer);
+                    return base.OnTick(timer);
+                }
             }
         }
 
@@ -109,43 +219,46 @@ namespace DOL.GS
                 double armorFactorScalingFactor = _epicNpc.DefaultArmorFactorScalingFactor;
                 int petCount = 0;
 
-                foreach (var pair in _attackerTracker._attackers)
+                lock (_attackerTracker._lock)
                 {
-                    if (TryRemoveAttacker(pair))
-                        continue;
-
-                    if (pair.Key is GamePlayer)
-                        armorFactorScalingFactor -= 0.04;
-                    else if (pair.Key is GameSummonedPet && petCount <= _epicNpc.ArmorFactorScalingFactorPetCap)
+                    foreach (var pair in _attackerTracker._attackers)
                     {
-                        armorFactorScalingFactor -= 0.01;
-                        petCount++;
+                        if (TryRemoveAttacker(pair))
+                            continue;
+
+                        if (pair.Key is GamePlayer)
+                            armorFactorScalingFactor -= 0.04;
+                        else if (pair.Key is GameSummonedPet && petCount < _epicNpc.ArmorFactorScalingFactorPetCap)
+                        {
+                            armorFactorScalingFactor -= 0.01;
+                            petCount++;
+                        }
+
+                        if (armorFactorScalingFactor < 0.4)
+                        {
+                            armorFactorScalingFactor = 0.4;
+                            break;
+                        }
                     }
 
-                    if (armorFactorScalingFactor < 0.4)
-                    {
-                        armorFactorScalingFactor = 0.4;
-                        break;
-                    }
+                    _epicNpc.ArmorFactorScalingFactor = armorFactorScalingFactor;
+                    return base.OnTick(timer);
                 }
-
-                _epicNpc.ArmorFactorScalingFactor = armorFactorScalingFactor;
-                return base.OnTick(timer);
             }
         }
 
         private abstract class AttackerCheckTimer : ECSGameTimerWrapperBase
         {
-            public const int CHECK_ATTACKERS_INTERVAL = 1000;
+            private const int CHECK_ATTACKERS_INTERVAL = 1000;
 
             protected readonly GameLiving _owner;
             protected readonly AttackerTracker _attackerTracker;
-            private readonly Lock _lock = new();
 
             public AttackerCheckTimer(AttackerTracker attackerTracker) : base(attackerTracker._owner)
             {
                 _owner = attackerTracker._owner;
                 _attackerTracker = attackerTracker;
+                Interval = CHECK_ATTACKERS_INTERVAL;
             }
 
             public static AttackerCheckTimer Create(AttackerTracker attackerTracker)
@@ -161,27 +274,22 @@ namespace DOL.GS
                 if (IsAlive)
                     return;
 
-                lock (_lock)
-                {
-                    if (IsAlive)
-                        return;
-
-                    Interval = CHECK_ATTACKERS_INTERVAL;
-                    Start();
-                }
+                Start();
             }
 
             protected override int OnTick(ECSGameTimer timer)
             {
-                return _attackerTracker.Count == 0 ? 0 : CHECK_ATTACKERS_INTERVAL;
+                return _attackerTracker.Count > 0 || !_attackerTracker.TryClearInterrupt() ? Interval : 0;
             }
 
-            protected bool TryRemoveAttacker(in KeyValuePair<GameLiving, AttackerInfo> pair)
+            protected bool TryRemoveAttacker(KeyValuePair<GameLiving, AttackerInfo> pair)
             {
-                if (pair.Value.ExpireTime < GameLoop.GameLoopTime && _attackerTracker._attackers.TryRemove(pair))
+                AttackerInfo attackerInfo = pair.Value;
+
+                if (attackerInfo.ExpireTime < GameLoop.GameLoopTime && _attackerTracker._attackers.Remove(pair.Key))
                 {
-                    if (pair.Value.IsMelee)
-                        Interlocked.Decrement(ref _attackerTracker._meleeCount);
+                    if (attackerInfo.IsMelee)
+                        _attackerTracker._meleeAttackerCount--;
 
                     return true;
                 }

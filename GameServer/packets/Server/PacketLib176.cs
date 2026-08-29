@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using DOL.Database;
@@ -131,7 +132,13 @@ namespace DOL.GS.PacketHandler
 						}
 					}
 				}
-				pak.WritePascalString(name.Length > 48 ? name.Substring(0, 48) : name);
+
+				ReadOnlySpan<char> nameSpan = name == null ? [] : name;
+
+				if (nameSpan.Length > 48)
+					nameSpan = nameSpan[..48];
+
+				pak.WritePascalString(nameSpan);
 
 				if (obj is GameDoorBase door)
 				{
@@ -143,7 +150,7 @@ namespace DOL.GS.PacketHandler
 			}
 		}
 
-		protected override void SendInventorySlotsUpdateRange(ICollection<eInventorySlot> slots, eInventoryWindowType windowType)
+		protected override void SendInventorySlotsUpdateRange(List<eInventorySlot> slots, eInventoryWindowType windowType)
 		{
 			using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.InventoryUpdate)))
 			{
@@ -270,7 +277,7 @@ namespace DOL.GS.PacketHandler
 
 			using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.EquipmentUpdate)))
 			{
-				ICollection<DbInventoryItem> items = null;
+				List<DbInventoryItem> items = null;
 				if (living.Inventory != null)
 					items = living.Inventory.VisibleItems;
 
@@ -381,7 +388,7 @@ namespace DOL.GS.PacketHandler
 				pak.WriteByte(0x00);
 				pak.WriteByte(0x00);
 				pak.WriteByte((byte)house.Model);
-				pak.WriteByte(0x00);
+				pak.WriteByte((byte)house.DoorMaterial);
 				pak.WriteByte(0x00);
 				pak.WriteByte(0x00);
 				pak.WriteByte((byte)house.Rug1Color);

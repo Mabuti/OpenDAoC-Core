@@ -13,8 +13,10 @@ namespace DOL.GS
         public eDamageType DamageType { get; set; }
         public eAttackType AttackType { get; set; } = eAttackType.Unknown;
         public eAttackResult AttackResult { get; set; } = eAttackResult.Any;
-        public int Damage { get; set; }
+        public int Damage { get; set; } // Final damage, already modified by resists and style damage.
+        public double BaseDamage { get; set; } // For percent-based damage adds and shields, modified by resists.
         public int StyleDamage { get; set; } // This is for display purpose, it's already added to Damage.
+        public double BaseDamageCap { get; set; } // For damage adds and shields.
         public int CriticalDamage { get; set; }
         public int CriticalChance { get; set; }
         public DbInventoryItem Weapon { get; set; }
@@ -33,11 +35,12 @@ namespace DOL.GS
         public bool IsSpellResisted { get; set; }
         public int Modifier { get; set; } // Resisted damage.
         public int AnimationId { get; set; }
+
         // Temporary property set by `AttackComponent.BroadcastAttackMessageToOtherPlayers`.
         // Used by pets in `GameNPC.OnAttackedByEnemy` for convenience.
         public string BroadcastMessage { get; set; }
 
-        public bool IsMeleeAttack => AttackType is eAttackType.MeleeOneHand or eAttackType.MeleeTwoHand or eAttackType.MeleeDualWield;
+        public bool IsMeleeAttack => AttackType is eAttackType.MeleeOneHand or eAttackType.MeleeTwoHand or eAttackType.MeleeDualWield or eAttackType.MeleeHandToHand;
 
         public bool IsHit => AttackResult switch
         {
@@ -55,11 +58,17 @@ namespace DOL.GS
 
         public AttackData() { }
 
-        public static eAttackType GetAttackType(DbInventoryItem weapon, bool dualWield, GameLiving attacker)
+        public static eAttackType GetAttackType(DbInventoryItem weapon, WeaponAction action, GameLiving attacker)
         {
-            if (dualWield && (attacker is not GamePlayer playerAttacker || (eCharacterClass) playerAttacker.CharacterClass.ID is not eCharacterClass.Savage))
-                return eAttackType.MeleeDualWield;
-            else if (weapon == null)
+            if (action != null)
+            {
+                if (action.DualWieldMechanic is DualWieldMechanic.Classic)
+                    return eAttackType.MeleeDualWield;
+                else if (action.DualWieldMechanic is DualWieldMechanic.HandToHand)
+                    return eAttackType.MeleeHandToHand;
+            }
+
+            if (weapon == null)
                 return eAttackType.MeleeOneHand;
 
             eAttackType attackType = weapon.SlotPosition switch
@@ -71,7 +80,7 @@ namespace DOL.GS
 
             if (attacker is GamePlayer)
             {
-                // This should the only important one to check.
+                // This should the only important ones to check.
                 if (attackType is eAttackType.MeleeTwoHand)
                 {
                     if (weapon.Item_Type is not Slot.TWOHAND)
@@ -87,14 +96,15 @@ namespace DOL.GS
             return attackType;
         }
 
-        public enum eAttackType : int
+        public enum eAttackType : byte
         {
-            Unknown = 0,
-            MeleeOneHand = 1,
-            MeleeDualWield = 2,
-            MeleeTwoHand = 3,
-            Ranged = 4,
-            Spell = 5
+            Unknown,
+            MeleeOneHand,
+            MeleeDualWield,
+            MeleeHandToHand,
+            MeleeTwoHand,
+            Ranged,
+            Spell
         }
     }
 }

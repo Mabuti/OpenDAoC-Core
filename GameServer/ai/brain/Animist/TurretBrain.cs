@@ -5,22 +5,15 @@ namespace DOL.AI.Brain
 {
     public class TurretBrain : ControlledMobBrain
     {
-        protected readonly List<GameLiving> _defensiveSpellTargets;
-
-        protected virtual bool CheckLosBeforeCastingDefensiveSpells => false;
-        protected virtual bool CheckLosBeforeCastingOffensiveSpells => true;
-
-        public TurretBrain(GameLiving owner) : base(owner)
-        {
-            _defensiveSpellTargets = new();
-        }
+        public TurretBrain(GameLiving owner) : base(owner) { }
 
         public override int AggroRange
         {
             get
             {
                 TurretPet body = Body as TurretPet;
-                return body.TurretSpell.CalculateEffectiveRange(body);
+                Spell spell = body.TurretSpell;
+                return spell.IsPBAoE ? spell.Radius : spell.CalculateEffectiveRange(body);
             }
         }
 
@@ -38,93 +31,53 @@ namespace DOL.AI.Brain
             {
                 case eCheckSpellType.Defensive:
                 {
-                    switch (spell.SpellType)
-                    {
-                        case eSpellType.HeatColdMatterBuff:
-                        case eSpellType.BodySpiritEnergyBuff:
-                        case eSpellType.ArmorAbsorptionBuff:
-                        case eSpellType.AblativeArmor:
-                        {
-                            GameLiving target = FindTargetForDefensiveSpell(spell);
+                    if (spell.IsHarmful)
+                        return false;
 
-                            if (target != null)
-                                return TrustCast(spell, eCheckSpellType.Defensive, FindTargetForDefensiveSpell(spell), CheckLosBeforeCastingDefensiveSpells);
-
-                            break;
-                        }
-                    }
-
-                    return false;
+                    GameLiving target = FindTargetForDefensiveSpell(spell);
+                    return TrustCast(spell, eCheckSpellType.Defensive, target, false);
                 }
                 case eCheckSpellType.Offensive:
                 {
-                    switch (spell.SpellType)
-                    {
-                        case eSpellType.DirectDamage:
-                        case eSpellType.DamageSpeedDecrease:
-                        case eSpellType.SpeedDecrease:
-                        case eSpellType.Taunt:
-                        case eSpellType.MeleeDamageDebuff:
-                        {
-                            GameLiving target = CalculateNextAttackTarget();
+                    if (!spell.IsHarmful)
+                        return false;
 
-                            if (target != null)
-                                return TrustCast(spell, eCheckSpellType.Offensive, target, CheckLosBeforeCastingOffensiveSpells);
-
-                            break;
-                        }
-                    }
-
-                    return false;
+                    GameLiving target = CalculateNextAttackTarget();
+                    return TrustCast(spell, eCheckSpellType.Offensive, target, true);
                 }
-                default:
-                    return false;
             }
+
+            return false;
         }
 
         protected override GameLiving FindTargetForDefensiveSpell(Spell spell)
         {
-            int spellRange = spell.CalculateEffectiveRange(Body);
+            List<GameLiving> targets = GameLoop.GetListForTick<GameLiving>();
+            ushort spellRange = (ushort) spell.CalculateEffectiveRange(Body);
 
-            // Clear the current list of invalid or already buffed targets before checking nearby players and NPCs.
-            for (int i = _defensiveSpellTargets.Count - 1; i >= 0; i--)
+            foreach (GamePlayer player in Body.GetPlayersInRadius(spellRange))
             {
-                GameLiving living = _defensiveSpellTargets[i];
-
-                if (GameServer.ServerRules.IsAllowedToAttack(Body, living, true) ||
-                    !living.IsAlive ||
-                    LivingHasEffect(living, spell) ||
-                    !Body.IsWithinRadius(living, (ushort) spellRange))
-                {
-                    _defensiveSpellTargets.SwapRemoveAt(i);
-                }
-            }
-
-            foreach (GamePlayer player in Body.GetPlayersInRadius((ushort) spellRange))
-            {
-                if (GameServer.ServerRules.IsAllowedToAttack(Body, player, true) || !player.IsAlive || LivingHasEffect(player, spell))
+                if (!CanSpellStillBeCastOnTarget(spell, player))
                     continue;
 
                 if (player == GetPlayerOwner())
                     return player;
 
-                if (!_defensiveSpellTargets.Contains(player))
-                    _defensiveSpellTargets.Add(player);
+                targets.Add(player);
             }
 
-            foreach (GameNPC npc in Body.GetNPCsInRadius((ushort) spellRange))
+            foreach (GameNPC npc in Body.GetNPCsInRadius(spellRange))
             {
-                if (GameServer.ServerRules.IsAllowedToAttack(Body, npc, true) || !npc.IsAlive || LivingHasEffect(npc, spell))
+                if (!CanSpellStillBeCastOnTarget(spell, npc))
                     continue;
 
                 if (npc == Body || npc == GetLivingOwner())
                     return npc;
 
-                if (!_defensiveSpellTargets.Contains(npc))
-                    _defensiveSpellTargets.Add(npc);
+                targets.Add(npc);
             }
 
-            return _defensiveSpellTargets.Count != 0 ? _defensiveSpellTargets[Util.Random(_defensiveSpellTargets.Count - 1)] : null;
+            return targets.Count != 0 ? targets[Util.Random(targets.Count - 1)] : null;
         }
 
         protected virtual bool TrustCast(Spell spell, eCheckSpellType type, GameLiving target, bool checkLos)
@@ -132,23 +85,14 @@ namespace DOL.AI.Brain
             if (spell.IsPBAoE)
                 return Body.CastSpell(spell, m_mobSpellLine);
 
-            if (target != null)
+            if (target == null)
             {
-                Body.TargetObject = target;
-                Body.StopAttack();
-                return Body.CastSpell(spell, m_mobSpellLine, checkLos);
+                Body.TargetObject = null;
+                return false;
             }
 
-            return false;
-        }
-
-        public override bool Stop()
-        {
-            if (!base.Stop())
-                return false;
-
-            _defensiveSpellTargets.Clear();
-            return true;
+            Body.TargetObject = target;
+            return Body.CastSpell(spell, m_mobSpellLine, checkLos);
         }
 
         #region AI

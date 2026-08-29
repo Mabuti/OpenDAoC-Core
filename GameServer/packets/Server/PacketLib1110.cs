@@ -2,7 +2,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using DOL.GS.PacketHandler.Client.v168;
 using DOL.GS.RealmAbilities;
 using DOL.GS.Spells;
@@ -13,8 +12,6 @@ namespace DOL.GS.PacketHandler
     [PacketLib(1110, GameClient.eClientVersion.Version1110)]
     public class PacketLib1110 : PacketLib1109
     {
-        private static readonly Logging.Logger log = Logging.LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
-
         /// <summary>
         /// Constructs a new PacketLib for Client Version 1.110
         /// </summary>
@@ -48,10 +45,13 @@ namespace DOL.GS.PacketHandler
 
 		public override void SendUpdateIcons(IList changedEffects, ref int lastUpdateEffectsCount)
 		{
+			SendUpdateIcons(ref lastUpdateEffectsCount, false);
+		}
+
+		public override void SendUpdateIcons(ref int lastUpdateEffectsCount, bool forced)
+		{
 			if (m_gameClient.Player == null)
-			{
 				return;
-			}
 
 			using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.UpdateIcons)))
 			{
@@ -65,23 +65,28 @@ namespace DOL.GS.PacketHandler
 				pak.WriteByte(Icons); // unknown
 				pak.WriteByte(0); // unknown
 
-				foreach (ECSGameEffect effect in m_gameClient.Player.effectListComponent.GetEffects().Where(e => e.EffectType != eEffect.Pulse))
+				foreach (ECSGameEffect effect in m_gameClient.Player.effectListComponent.GetSortedEffects(static e => e.EffectType is not eEffect.Pulse))
 				{
 					if (effect.Icon == 0)
 						continue;
 
 					fxcount++;
-					if (changedEffects != null && !changedEffects.Contains(effect))
-					{
+					int currentClientIndex = fxcount - 1;
+
+					// Did the effect's position shift because an earlier effect was removed?
+					// Or is this a brand new effect (LastClientIndex == -1, or NeedsUpdate == true)?
+					if (!forced && !effect.NeedsClientUpdate && effect.LastClientIndex == currentClientIndex)
 						continue;
-					}
+
+					effect.LastClientIndex = currentClientIndex;
+					effect.NeedsClientUpdate = false;
 
 					// store tooltip update for gamespelleffect.
 					if (ForceTooltipUpdate && effect is ECSGameSpellEffect gameEffect)
 					{
 						ISpellHandler spellHandler = gameEffect.SpellHandler;
 
-						if (spellHandler.Spell.IsDynamic || m_gameClient.CanSendTooltip(24, spellHandler.Spell.InternalID))
+						if (m_gameClient.CanSendTooltip(24, spellHandler.Spell.InternalID))
 							SendDelveInfo(DetailDisplayHandler.DelveSpell(spellHandler));
 					}
 
@@ -91,27 +96,19 @@ namespace DOL.GS.PacketHandler
 					pak.WriteByte((effect is ECSGameAbilityEffect && effect.Icon <= 5000) ? (byte)0xff : (byte)(fxcount - 1));
 					//pak.WriteByte((effect is ECSGameSpellEffect || effect.Icon > 5000) ? (byte)(fxcount - 1) : (byte)0xff); // <- [Takii] previous version
 
-					byte ImmunByte = 0;
-					var gsp = effect as ECSGameEffect;
-					if (gsp is ECSImmunityEffect || gsp.IsDisabled)
-						ImmunByte = 1;
-					//todo this should be the ImmunByte
+					byte ImmunByte = (byte) (effect is ECSImmunityEffect || effect.IsDisabled ? 1 : 0);
 					pak.WriteByte(ImmunByte); // new in 1.73; if non zero says "protected by" on right click
 
 					// bit 0x08 adds "more..." to right click info
 					pak.WriteShort(effect.Icon);
 					pak.WriteShort((ushort)(effect.GetRemainingTimeForClient() / 1000));
-					if (effect is ECSGameEffect || effect is ECSImmunityEffect)
-						pak.WriteShort(effect.Icon); //v1.110+ send the spell ID for delve info in active icon
+
+					if (effect is ECSGameEffect)
+						pak.WriteShort(effect.TooltipId); //v1.110+ send the spell ID for delve info in active icon
 					else
 						pak.WriteShort(0);//don't override existing tooltip ids
 
-					byte flagNegativeEffect = 0;
-
-					if (!effect.HasPositiveEffect)
-					{
-						flagNegativeEffect = 1;
-					}
+					byte flagNegativeEffect = (byte) (effect.HasPositiveEffect ? 0 : 1);
 
 					pak.WriteByte(flagNegativeEffect);
 
@@ -127,11 +124,6 @@ namespace DOL.GS.PacketHandler
 					pak.WriteByte((byte)(fxcount++));
 					pak.Fill(0, 10);
 					entriesCount++;
-				}
-
-				if (changedEffects != null)
-				{
-					changedEffects.Clear();
 				}
 
 				if (entriesCount == 0)
@@ -199,7 +191,7 @@ namespace DOL.GS.PacketHandler
 					if (spell is Song || spell.NeedInstrument)
 					{
 						if (m_gameClient.CanSendTooltip(26, spell.InternalID))
-							SendDelveInfo(DetailDisplayHandler.DelveSong(m_gameClient, spell.InternalID));
+							SendDelveInfo(DetailDisplayHandler.DelveSong(m_gameClient, spell));
 					}
 
 					if (m_gameClient.CanSendTooltip(24, spell.InternalID))
@@ -228,21 +220,23 @@ namespace DOL.GS.PacketHandler
                 return;
             using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.SiegeWeaponAnimation)))
             {
-                pak.WriteInt((uint)siegeWeapon.ObjectID);
+                bool isGroundTargetValid = siegeWeapon.GroundTarget.IsValid;
+
+                pak.WriteInt(siegeWeapon.ObjectID);
                 pak.WriteInt(
                     (uint)
                     (siegeWeapon.TargetObject == null
-                     ? (siegeWeapon.GroundTarget == null ? 0 : siegeWeapon.GroundTarget.X)
+                     ? (!isGroundTargetValid ? 0 : siegeWeapon.GroundTarget.X)
                      : siegeWeapon.TargetObject.X));
                 pak.WriteInt(
                     (uint)
                     (siegeWeapon.TargetObject == null
-                     ? (siegeWeapon.GroundTarget == null ? 0 : siegeWeapon.GroundTarget.Y)
+                     ? (!isGroundTargetValid ? 0 : siegeWeapon.GroundTarget.Y)
                      : siegeWeapon.TargetObject.Y));
                 pak.WriteInt(
                     (uint)
                     (siegeWeapon.TargetObject == null
-                     ? (siegeWeapon.GroundTarget == null ? 0 : siegeWeapon.GroundTarget.Z)
+                     ? (!isGroundTargetValid ? 0 : siegeWeapon.GroundTarget.Z)
                      : siegeWeapon.TargetObject.Z));
                 pak.WriteInt((uint)(siegeWeapon.TargetObject == null ? 0 : siegeWeapon.TargetObject.ObjectID));
                 pak.WriteShort(siegeWeapon.Effect);

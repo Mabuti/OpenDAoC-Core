@@ -8,7 +8,6 @@ using DOL.GS.Housing;
 using DOL.GS.Keeps;
 using DOL.GS.PacketHandler.Client.v168;
 using DOL.Language;
-using static DOL.AI.Brain.StandardMobBrain;
 
 namespace DOL.GS.Commands
 {
@@ -204,45 +203,31 @@ namespace DOL.GS.Commands
 				*/
 					info.Add("");
 					info.Add(" ------ State ------");
-					if (target.IsReturningToSpawnPoint)
-					{
-						info.Add("IsReturningToSpawnPoint: " + target.IsReturningToSpawnPoint);
-						info.Add("");
-					}
-
 					info.Add("InCombat: " + target.InCombat);
 					info.Add("AttackState: " + target.attackComponent.AttackState);
 					info.Add("LastCombatPVE: " + target.LastCombatTickPvE);
 					info.Add("LastCombatPVP: " + target.LastCombatTickPvP);
 					info.Add("AttackAction: " + target.attackComponent.attackAction);
 					info.Add("WeaponAction: " + target.attackComponent.weaponAction);
-
-					if (target.InCombat || target.attackComponent.AttackState)
-					{
-						info.Add("RegionTick: " + GameLoop.GameLoopTime);
-						info.Add("AttackAction NextTick " + target.attackComponent.attackAction.NextTick);
-						info.Add("AttackAction TimeUntilStart " + (target.attackComponent.attackAction.NextTick - GameLoop.GameLoopTime));
-					}
-
 					info.Add("");
 
 					if (target.TargetObject != null)
-					{
 						info.Add("TargetObject: " + target.TargetObject.Name);
-						info.Add("InView: " + target.TargetInView);
-					}
+
+					if (target.IsInterrupted(out GameLiving lastInterrupter))
+						info.Add("LastInterrupter: " + lastInterrupter.Name);
 
 					if (target.Brain is StandardMobBrain brain)
 					{
-						List<OrderedAggroListElement> aggroList = brain.GetOrderedAggroList();
+						var aggroList = brain.GetAggroListDebug();
 
 						if (aggroList.Count > 0)
 						{
 							info.Add("");
 							info.Add("Aggro List:");
 
-							foreach (OrderedAggroListElement orderedAggroListElement in aggroList)
-								info.Add($"{orderedAggroListElement.Living.Name}: {orderedAggroListElement.AggroAmount}");
+							foreach ((GameLiving living, long amount) in aggroList)
+								info.Add($"{living.Name}: {amount}");
 						}
 					}
 
@@ -345,7 +330,6 @@ namespace DOL.GS.Commands
 					info.Add(sTitle + sCurrent);
 
 					info.Add(" ");
-					info.Add("  - Respecs dol : " + target.RespecAmountDOL);
 					info.Add("  - Respecs single : " + target.RespecAmountSingleSkill);
 					info.Add("  - Respecs full : " + target.RespecAmountAllSkill);
 					
@@ -710,7 +694,7 @@ namespace DOL.GS.Commands
 					info.Add(" Zone Height: "+ client.Player.CurrentZone.Height);
 					info.Add(" Zone DivingEnabled: " + client.Player.CurrentZone.IsDivingEnabled);
 					info.Add(" Zone Waterlevel: " + client.Player.CurrentZone.Waterlevel);
-					info.Add(" Zone Pathing: " + (PathingMgr.Instance.HasNavmesh(client.Player.CurrentZone) ? "enabled" : "disabled"));
+					info.Add(" Zone Pathfinding: " + (PathfindingProvider.Instance.HasNavmesh(client.Player.CurrentZone) ? "enabled" : "disabled"));
 					info.Add(" ");
 					info.Add(" Region Name: "+ client.Player.CurrentRegion.Name);
                     info.Add(" Region Description: " + client.Player.CurrentRegion.Description);

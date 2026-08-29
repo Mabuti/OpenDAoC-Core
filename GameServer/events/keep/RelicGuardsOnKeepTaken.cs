@@ -90,21 +90,18 @@ namespace DOL.GS.GameEvents
                     TranslationId = translationId
                 };
 
-                Zone zone = guard.CurrentRegion?.GetZone(guard.X, guard.Y);
+                guard.movementComponent.ForceUpdatePosition(); // Ensures `CurrentAreas` returns something.
 
-                if (zone != null)
+                foreach (IArea area in guard.CurrentAreas)
                 {
-                    foreach (IArea area in zone.GetAreasOfSpot(guard.X, guard.Y, guard.Z))
-                    {
-                        if (area is not KeepArea keepArea)
-                            continue;
+                    if (area is not KeepArea keepArea)
+                        continue;
 
-                        guard.Component = new()
-                        {
-                            Keep = keepArea.Keep
-                        };
-                        break;
-                    }
+                    guard.Component = new()
+                    {
+                        Keep = keepArea.Keep
+                    };
+                    break;
                 }
 
                 GuardTemplateMgr.RefreshTemplate(guard);
@@ -128,7 +125,7 @@ namespace DOL.GS.GameEvents
             {
                 try
                 {
-                    foreach (GameRelic relic in RelicMgr.getNFRelics())
+                    foreach (GameRelic relic in RelicMgr.GetRelics())
                     {
                         switch (relic.Realm)
                         {

@@ -7,12 +7,13 @@ using DOL.Database.UniqueID;
 
 namespace DOL.Database
 {
-    public abstract class DataObject : ICloneable
+    public abstract class DataObject : ICloneable, IEquatable<DataObject>
     {
         private DataObject _snapshot;
         private bool _allowAdd = true;
         private bool _allowDelete = true;
-        private DateTime _lastTimeRowUpdated;
+        private string _objectId;
+        private int? _cachedHash;
 
         public virtual bool UsesPreCaching => AttributeUtil.GetPreCachedFlag(GetType());
 
@@ -37,7 +38,15 @@ namespace DOL.Database
         }
 
         [Browsable(false)]
-        public string ObjectId { get; set; }
+        public string ObjectId
+        {
+            get => _objectId;
+            set
+            {
+                _objectId = value;
+                _cachedHash = null; // Just in case. ObjectId should never be changed after creation.
+            }
+        }
 
         [Browsable(false)]
         public virtual bool Dirty { get; set; }
@@ -46,11 +55,7 @@ namespace DOL.Database
         public virtual bool IsDeleted { get; set; }
 
         [DataElement(AllowDbNull = false, Index = false)]
-        public DateTime LastTimeRowUpdated
-        {
-            get => Dirty ? DateTime.UtcNow : _lastTimeRowUpdated;
-            set => _lastTimeRowUpdated = value;
-        }
+        public DateTime LastTimeRowUpdated { get; set; }
 
         protected DataObject()
         {
@@ -63,9 +68,10 @@ namespace DOL.Database
 
         public void TakeSnapshot()
         {
-            // Called when an object as been created and its properties initialized.
+            // Called when an object has been created and its properties initialized.
             // Creates a copy of itself to be able to keep track of dirty properties.
             _snapshot = (DataObject) MemberwiseClone();
+            _snapshot._snapshot = null;
             _snapshot.Dirty = false;
         }
 
@@ -73,30 +79,29 @@ namespace DOL.Database
         {
             // If there's no snapshot, we can't know what changed.
             if (_snapshot == null)
-                return tableHandler.FieldElementBindings.Where(Predicate).ToList();
+            {
+                LastTimeRowUpdated = DateTime.UtcNow;
+                return tableHandler.UpdateElementBindings.ToList();
+            }
 
             List<ElementBinding> dirtyBindings = new();
 
-            // Iterate through all columns that can be part of an UPDATE statement.
-            foreach (ElementBinding binding in tableHandler.FieldElementBindings.Where(bind => bind.PrimaryKey == null && bind.ReadOnly == null))
+            foreach (ElementBinding binding in tableHandler.UpdateElementBindings)
             {
-                if (!Predicate(binding))
-                    continue;
-
                 object currentValue = binding.GetValue(this);
                 object originalValue = binding.GetValue(_snapshot);
 
-                // If the values are not equal, this property is dirty.
                 if (!Equals(currentValue, originalValue))
                     dirtyBindings.Add(binding);
             }
 
-            return dirtyBindings;
-
-            static bool Predicate(ElementBinding binding)
+            if (dirtyBindings.Count > 0 && tableHandler.LastUpdatedBinding != null)
             {
-                return binding.PrimaryKey == null && binding.ReadOnly == null;
+                LastTimeRowUpdated = DateTime.UtcNow;
+                dirtyBindings.Add(tableHandler.LastUpdatedBinding);
             }
+
+            return dirtyBindings;
         }
 
         public object Clone()
@@ -104,12 +109,35 @@ namespace DOL.Database
             var obj = (DataObject) MemberwiseClone();
             obj.IsPersisted = false;
             obj.ObjectId = IdGenerator.GenerateID();
+            obj._snapshot = null;
             return obj;
         }
 
         public override string ToString()
         {
             return $"DataObject: {TableName}, ObjectId{{{ObjectId}}}";
+        }
+
+        public override int GetHashCode()
+        {
+            if (_cachedHash.HasValue)
+                return _cachedHash.Value;
+
+            _cachedHash = ObjectId.GetHashCode();
+            return _cachedHash.Value;
+        }
+
+        public override bool Equals(object obj)
+        {
+            return Equals(obj as DataObject);
+        }
+
+        public bool Equals(DataObject other)
+        {
+            if (other is null)
+                return false;
+
+            return ReferenceEquals(this, other) || ObjectId == other.ObjectId;
         }
     }
 }

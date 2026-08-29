@@ -126,15 +126,15 @@ namespace DOL.GS
 			}
 			return success;
 		}
-		private static bool SpawnMoP=false;
-		public override void Die(GameObject killer)
+		private bool SpawnMoP=false;
+		public override void ProcessDeath(GameObject killer)
 		{
 			if (SpawnMoP == false)
 			{
 				SpawnMasterOfPain();
 				SpawnMoP = true;
 			}
-			base.Die(killer);
+			base.ProcessDeath(killer);
 		}
 		public void SpawnMasterOfPain()
 		{
@@ -195,12 +195,11 @@ namespace DOL.AI.Brain
 					spell.Name = "Shield of Pain";
 					spell.Range = 0;
 					spell.SpellID = 11792;
-					spell.Target = "Self";
+					spell.Target = eSpellTarget.SELF.ToString();
 					spell.Type = eSpellType.Bladeturn.ToString();
 					spell.Uninterruptible = true;
 					spell.MoveCast = true;
 					m_Bubble = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Bubble);
 				}
 				return m_Bubble;
 			}
@@ -355,7 +354,6 @@ namespace DOL.AI.Brain
 					spell.Uninterruptible = true;
 					spell.MoveCast = true;
 					m_DebuffSC = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_DebuffSC);
 				}
 				return m_DebuffSC;
 			}

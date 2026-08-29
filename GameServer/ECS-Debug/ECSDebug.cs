@@ -7,6 +7,7 @@ using System.Threading;
 using DOL.Events;
 using DOL.GS;
 using DOL.Logging;
+using DOL.Timing;
 using ECS.Debug;
 
 namespace ECS.Debug
@@ -24,11 +25,10 @@ namespace ECS.Debug
         private static readonly Lock _perfCountersLock = new();
 
         // GameEventMgr Notify profiling fields.
-        private static Dictionary<string, List<double>> _gameEventMgrNotifyTimes = new();
+        private static SortedDictionary<string, List<double>> _gameEventMgrNotifyTimes = new();
         private static bool _gameEventMgrNotifyProfilingEnabled;
         private static int _gameEventMgrNotifyTimerInterval;
         private static long _gameEventMgrNotifyTimerStartTick;
-        private static Stopwatch _gameEventMgrNotifyStopwatch;
         private static readonly Lock _gameEventMgrNotifyLock = new();
 
         // State management for delayed start/stop.
@@ -38,7 +38,8 @@ namespace ECS.Debug
         private static int _notifyProfilingIntervalRequest;
 
         public static bool CheckServiceObjectCount { get; private set; }
-        public static int LongTickThreshold { get; private set; } = 25;
+        public static bool EnableTickProfiling { get; set; } = true;
+        public static int LongTickThreshold { get; set; } = 25;
 
         public static void PrintServiceObjectCount(string serviceName, ref int nonNull, int total)
         {
@@ -109,29 +110,29 @@ namespace ECS.Debug
             }
         }
 
-        public static void BeginGameEventMgrNotify()
+        public static long BeginGameEventMgrNotify()
         {
             if (!_gameEventMgrNotifyProfilingEnabled)
-                return;
+                return 0;
 
-            _gameEventMgrNotifyStopwatch = Stopwatch.StartNew();
+            return Stopwatch.GetTimestamp();
         }
 
-        public static void EndGameEventMgrNotify(DOLEvent e)
+        public static void EndGameEventMgrNotify(DOLEvent e, long startTimestamp)
         {
-            if (!_gameEventMgrNotifyProfilingEnabled)
+            if (!_gameEventMgrNotifyProfilingEnabled || startTimestamp == 0)
                 return;
 
-            _gameEventMgrNotifyStopwatch.Stop();
+            double elapsedMs = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
 
             lock (_gameEventMgrNotifyLock)
             {
-                if (_gameEventMgrNotifyTimes.TryGetValue(e.Name, out List<double> EventTimeValues))
-                    EventTimeValues.Add(_gameEventMgrNotifyStopwatch.Elapsed.TotalMilliseconds);
+                if (_gameEventMgrNotifyTimes.TryGetValue(e.Name, out List<double> eventTimeValues))
+                    eventTimeValues.Add(elapsedMs);
                 else
                 {
-                    EventTimeValues = [_gameEventMgrNotifyStopwatch.Elapsed.TotalMilliseconds];
-                    _gameEventMgrNotifyTimes.TryAdd(e.Name, EventTimeValues);
+                    eventTimeValues = [elapsedMs];
+                    _gameEventMgrNotifyTimes[e.Name] = eventTimeValues;
                 }
             }
         }
@@ -191,7 +192,7 @@ namespace ECS.Debug
                     {
                         _gameEventMgrNotifyProfilingEnabled = true;
                         _gameEventMgrNotifyTimerInterval = _notifyProfilingIntervalRequest;
-                        _gameEventMgrNotifyTimerStartTick = GameLoop.GetRealTime();
+                        _gameEventMgrNotifyTimerStartTick = MonotonicTime.NowMs;
                     }
                 }
                 else
@@ -238,10 +239,10 @@ namespace ECS.Debug
 
         private static void ReportGameEventMgrNotifyTimes()
         {
-            if (!_gameEventMgrNotifyProfilingEnabled || GameLoop.GetRealTime() - _gameEventMgrNotifyTimerStartTick <= _gameEventMgrNotifyTimerInterval)
+            if (!_gameEventMgrNotifyProfilingEnabled || MonotonicTime.NowMs - _gameEventMgrNotifyTimerStartTick <= _gameEventMgrNotifyTimerInterval)
                 return;
 
-            string actualInterval = Util.TruncateString((GameLoop.GetRealTime() - _gameEventMgrNotifyTimerStartTick).ToString(), 5);
+            ReadOnlySpan<char> actualInterval = TruncateString((MonotonicTime.NowMs - _gameEventMgrNotifyTimerStartTick).ToString(), 5);
             log.Debug($"==== GameEventMgr Notify() Costs (Requested Interval: {_gameEventMgrNotifyTimerInterval}ms | Actual Interval: {actualInterval}ms) ====");
 
             lock (_gameEventMgrNotifyLock)
@@ -268,15 +269,15 @@ namespace ECS.Debug
                     int NumValues = EventTimeValues.Count;
                     double AvgCost = TotalCost / NumValues;
                     string NumValuesString = NumValues.ToString().PadRight(4);
-                    string TotalCostString = Util.TruncateString(TotalCost.ToString(), 5);
-                    string MinCostString = Util.TruncateString(MinCost.ToString(), 5);
-                    string MaxCostString = Util.TruncateString(MaxCost.ToString(), 5);
-                    string AvgCostString = Util.TruncateString(AvgCost.ToString(), 5);
+                    ReadOnlySpan<char> TotalCostString = TruncateString(TotalCost.ToString(), 5);
+                    ReadOnlySpan<char> MinCostString = TruncateString(MinCost.ToString(), 5);
+                    ReadOnlySpan<char> MaxCostString = TruncateString(MaxCost.ToString(), 5);
+                    ReadOnlySpan<char> AvgCostString = TruncateString(AvgCost.ToString(), 5);
                     log.Debug($"{EventNameString} - # Calls: {NumValuesString} | Total: {TotalCostString}ms | Avg: {AvgCostString}ms | Min: {MinCostString}ms | Max: {MaxCostString}ms");
                 }
 
                 _gameEventMgrNotifyTimes.Clear();
-                _gameEventMgrNotifyTimerStartTick = GameLoop.GetRealTime();
+                _gameEventMgrNotifyTimerStartTick = MonotonicTime.NowMs;
                 log.Debug("---------------------------------------------------------------------------");
             }
         }
@@ -286,6 +287,16 @@ namespace ECS.Debug
             None,
             Start,
             Stop
+        }
+
+        private static ReadOnlySpan<char> TruncateString(string str, int maxLength)
+        {
+            ReadOnlySpan<char> span = str;
+
+            if (span.Length > maxLength)
+                span = span[..maxLength];
+
+            return span;
         }
     }
 }
@@ -298,6 +309,7 @@ namespace DOL.GS.Commands
     "Toggle server logging of performance diagnostics.",
     "/diag perf <on|off> [duration] to toggle performance diagnostics logging on server with an optional duration (in minutes).",
     "/diag notify <on|off> <interval> to toggle GameEventMgr Notify profiling, where interval is the period of time in milliseconds during which to accumulate stats.",
+    "/diag tick <on|off> [threshold] to toggle tick profiling, optionally setting the long tick threshold in milliseconds.",
     "/diag object to count non-null service objects in ServiceObjectStore arrays.")]
     public class ECSDiagnosticsCommandHandler : AbstractCommandHandler, ICommandHandler
     {
@@ -382,6 +394,40 @@ namespace DOL.GS.Commands
                     {
                         Diagnostics.RequestGameEventMgrNotifyTimeReporting(false);
                         DisplayMessage(client, "GameEventMgr Notify() logging turned off.");
+                    }
+                    else
+                        DisplaySyntax(client);
+
+                    break;
+                }
+                case "tick":
+                {
+                    if (args.Length < 3)
+                    {
+                        DisplaySyntax(client);
+                        return;
+                    }
+
+                    if (args[2].Equals("on", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (args.Length > 3)
+                        {
+                            if (!int.TryParse(args[3], out int threshold) || threshold <= 0)
+                            {
+                                DisplayMessage(client, "Invalid threshold argument. Please specify a positive value in milliseconds.");
+                                return;
+                            }
+
+                            Diagnostics.LongTickThreshold = threshold;
+                        }
+
+                        Diagnostics.EnableTickProfiling = true;
+                        DisplayMessage(client, $"Tick profiling turned on. Long tick threshold is set to {Diagnostics.LongTickThreshold}ms.");
+                    }
+                    else if (args[2].Equals("off", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Diagnostics.EnableTickProfiling = false;
+                        DisplayMessage(client, "Tick profiling turned off.");
                     }
                     else
                         DisplaySyntax(client);

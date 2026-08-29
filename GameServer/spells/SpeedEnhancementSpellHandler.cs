@@ -12,7 +12,7 @@ namespace DOL.GS.Spells
 	[SpellHandler(eSpellType.SpeedEnhancement)]
 	public class SpeedEnhancementSpellHandler : SpellHandler
 	{
-		public override string ShortDescription => $"The target's speed is increased to {Spell.Value}% of normal.";
+		public override string ShortDescription => $"The target's speed is increased to {Spell.Value}% of normal{GetFrequencyAndDurationSuffix()}.";
 
 		public SpeedEnhancementSpellHandler(GameLiving caster, Spell spell, SpellLine line) : base(caster, spell, line) { }
 
@@ -24,7 +24,7 @@ namespace DOL.GS.Spells
 
 		public override ECSGameSpellEffect CreateECSEffect(in ECSGameEffectInitParams initParams)
 		{
-			return ECSGameEffectFactory.Create(initParams, static (in ECSGameEffectInitParams i) => new SpeedEnhancementECSEffect(i));
+			return ECSGameEffectFactory.Create(initParams, static (in i) => new SpeedEnhancementECSEffect(i));
 		}
 
 		protected override int CalculateEffectDuration(GameLiving target)
@@ -37,7 +37,7 @@ namespace DOL.GS.Spells
 				if (instrument != null)
 				{
 					duration *= 1.0 + Math.Min(1.0, instrument.Level / (double)Caster.Level); // up to 200% duration for songs
-					duration *= instrument.Condition / (double)instrument.MaxCondition * instrument.Quality / 100;
+					duration *= instrument.Quality * 0.01 * instrument.ConditionPercent * 0.01;
 				}
 			}
 			

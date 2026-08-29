@@ -37,7 +37,7 @@ namespace DOL.GS.PacketHandler
 			using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.CharacterOverview)))
 			{
 				pak.FillString(m_gameClient.Account.Name, 24);
-				IList<DbInventoryItem> items;
+				List<DbInventoryItem> items;
 				DbCoreCharacter[] characters = m_gameClient.Account.Characters;
 				if (characters == null)
 				{
@@ -334,25 +334,51 @@ namespace DOL.GS.PacketHandler
 			}
 		}
 
-		protected override void WriteGroupMemberUpdate(GSTCPPacketOut pak, bool updateIcons, GameLiving living)
+		public override void SendGroupMembersMapUpdate(ReadOnlySpan<GameLiving> livings)
 		{
-			base.WriteGroupMemberUpdate(pak, updateIcons, living);
-			WriteGroupMemberMapUpdate(pak, living);
-		}
+			GamePlayer player = m_gameClient.Player;
 
-		protected virtual void WriteGroupMemberMapUpdate(GSTCPPacketOut pak, GameLiving living)
-		{
-			bool sameRegion = living.CurrentRegion == m_gameClient.Player.CurrentRegion;
-			if (sameRegion && living.CurrentSpeed != 0)//todo : find a better way to detect when player change coord
+			bool hasData = false;
+
+			using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.GroupMemberUpdate)))
 			{
-				Zone zone = living.CurrentZone;
-				if (zone == null)
+				foreach (GameLiving living in livings)
+				{
+					if (player == living)
+						continue;
+
+					Zone zone = living.CurrentZone;
+
+					if (zone == null)
+						continue;
+
+					pak.WriteByte((byte)(0x40 | living.GroupIndex));
+
+					if (player.CurrentRegion == living.CurrentRegion)
+					{
+						pak.WriteShort(zone.ZoneSkinID);
+						pak.WriteShort((ushort) (living.X - zone.XOffset));
+						pak.WriteShort((ushort) (living.Y - zone.YOffset));
+					}
+					else
+					{
+						// Seems to work to remove dots, but no idea if that's what Live does.
+						pak.WriteShort(0);
+						pak.WriteShort(0);
+						pak.WriteShort(0);
+					}
+
+					hasData = true;
+				}
+
+				if (!hasData)
+				{
+					pak.ReleasePooledObject();
 					return;
-				pak.WriteByte((byte)(0x40 | living.GroupIndex));
-                //Dinberg - ZoneSkinID for group members aswell.
-				pak.WriteShort(zone.ZoneSkinID);
-				pak.WriteShort((ushort)(living.X - zone.XOffset));
-				pak.WriteShort((ushort)(living.Y - zone.YOffset));
+				}
+
+				pak.WriteByte(0x00);
+				SendTCP(pak);
 			}
 		}
 
@@ -383,9 +409,60 @@ namespace DOL.GS.PacketHandler
 
 		public override void SendSpellEffectAnimation(GameObject spellCaster, GameObject spellTarget, ushort spellid, ushort boltTime, bool noSound, byte success)
 		{
+			switch (m_gameClient.EffectFilter)
+			{
+				case eEffectFilter.All:
+					break;
+				case eEffectFilter.Self:
+				{
+					if (m_gameClient.Player != spellCaster && m_gameClient.Player != spellTarget)
+						return;
+
+					break;
+				}
+				case eEffectFilter.None:
+					return;
+				case eEffectFilter.Group:
+				{
+					Group group = m_gameClient.Player.Group;
+
+					if (group == null)
+					{
+						if (m_gameClient.Player != spellCaster && m_gameClient.Player != spellTarget)
+							return;
+					}
+					else if (!group.IsInTheGroup(spellCaster as GameLiving) && !group.IsInTheGroup(spellTarget as GameLiving))
+						return;
+
+					break;
+				}
+				case eEffectFilter.Others:
+				{
+					if (m_gameClient.Player == spellCaster || m_gameClient.Player == spellTarget)
+						return;
+
+					break;
+				}
+			}
+
 			using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.SpellEffectAnimation)))
 			{
-				pak.WriteShort((ushort)spellCaster.ObjectID);
+				ushort casterObjectId;
+
+				// Fixes issues with spell effects caused by out of range or invisible attackers.
+				if (spellTarget != null)
+				{
+					if (!spellTarget.IsWithinRadius(spellCaster, WorldMgr.VISIBILITY_DISTANCE))
+						casterObjectId = 0;
+					else if (spellTarget is GamePlayer playerTarget && !playerTarget.CanDetect(spellCaster))
+						casterObjectId = 0;
+					else
+						casterObjectId = spellCaster.ObjectID;
+				}
+				else
+					casterObjectId = spellCaster.ObjectID;
+
+				pak.WriteShort(casterObjectId);
 				pak.WriteShort(spellid);
 				pak.WriteShort((ushort)(spellTarget == null ? 0 : spellTarget.ObjectID));
 				pak.WriteShort(boltTime);
@@ -486,7 +563,7 @@ namespace DOL.GS.PacketHandler
 			using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.EquipmentUpdate)))
 			{
 
-				ICollection<DbInventoryItem> items = null;
+				List<DbInventoryItem> items = null;
 				if (living.Inventory != null)
 					items = living.Inventory.VisibleItems;
 

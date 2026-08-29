@@ -1,11 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using System.Reflection;
 using DOL.AI.Brain;
 using DOL.Database;
 using DOL.GS.Keeps;
+using DOL.GS.PlayerClass;
 using DOL.GS.Quests;
 using DOL.Language;
 
@@ -53,7 +53,7 @@ namespace DOL.GS.PacketHandler
 		{
 			using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.EquipmentUpdate)))
 			{
-				ICollection<DbInventoryItem> items = null;
+				List<DbInventoryItem> items = null;
 				if (living.Inventory != null)
 					items = living.Inventory.VisibleItems;
 
@@ -236,27 +236,44 @@ namespace DOL.GS.PacketHandler
 					string name = npc.Name;
 					string guildName = npc.GuildName;
 
-					if (LanguageMgr.GetTranslation(m_gameClient, npc) is DbLanguageGameNpc translation)
-					{
-						if (!string.IsNullOrEmpty(translation.Name))
-							name = translation.Name;
+					LanguageDataObject translation = LanguageMgr.GetTranslation(m_gameClient, npc);
 
-						if (!string.IsNullOrEmpty(translation.GuildName))
-							guildName = translation.GuildName;
+					if (translation != null)
+					{
+						if (!string.IsNullOrEmpty(((DbLanguageGameNpc)translation).Name))
+							name = ((DbLanguageGameNpc)translation).Name;
+
+						if (!string.IsNullOrEmpty(((DbLanguageGameNpc)translation).GuildName))
+							guildName = ((DbLanguageGameNpc)translation).GuildName;
 					}
 
-					if (name.Length + add.Length + 2 > 47) // Clients crash with too long names.
-						name = name[..(47 - add.Length - 2)];
+					ReadOnlySpan<char> nameSpan = name;
+					int maxNameLength = 47 - add.Length - 2;
+
+					if (nameSpan.Length > maxNameLength)
+						nameSpan = nameSpan[..maxNameLength];
 
 					if (add.Length > 0)
-						name = string.Format("[{0}]{1}", name, add);
-
-					pak.WritePascalString(name);
-
-					if (guildName.Length > 47)
-						pak.WritePascalString(guildName.Substring(0, 47));
+					{
+						Span<char> buffer = stackalloc char[1 + nameSpan.Length + 1 + add.Length];
+						int pos = 0;
+						buffer[pos++] = '[';
+						nameSpan.CopyTo(buffer[pos..]);
+						pos += nameSpan.Length;
+						buffer[pos++] = ']';
+						add.AsSpan().CopyTo(buffer[pos..]);
+						pos += add.Length;
+						pak.WritePascalString(buffer[..pos]);
+					}
 					else
-						pak.WritePascalString(guildName);
+						pak.WritePascalString(nameSpan);
+
+					ReadOnlySpan<char> guildSpan = guildName;
+
+					if (guildSpan.Length > 47)
+						guildSpan = guildSpan[..47];
+
+					pak.WritePascalString(guildSpan);
 
 					pak.WriteByte(0x00);
 					SendTCP(pak);
@@ -273,51 +290,42 @@ namespace DOL.GS.PacketHandler
 
 			// Hack to make NPCs untargetable with TAB on a PvP server. There might be a better way to do it.
 			// Relies on 'SendObjectGuildID' not to be called after this.
-			if (GameServer.Instance.Configuration.ServerType == EGameServerType.GST_PvP)
+			if (GameServer.Instance.Configuration.ServerType is EGameServerType.GST_PvP)
 			{
 				if (npc.Brain is IControlledBrain npcBrain)
-					SendPetFakeFriendlyGuildID(npc, npcBrain);
-				else
-					SendNpcFakeFriendlyGuildID(npc);
-			}
-
-			void SendPetFakeFriendlyGuildID(GameNPC pet, IControlledBrain petBrain)
-			{
-				GamePlayer playerOwner = petBrain.GetPlayerOwner();
-				GamePlayer player = m_gameClient.Player;
-				Guild playerGuild = player.Guild;
-
-				// Leave if the player we send this packet to isn't the pet's owner and isn't in the same guild or group.
-				if (playerOwner != player)
 				{
-					Guild playerOwnerGuild = playerOwner.Guild;
+					GamePlayer playerOwner = npcBrain.GetPlayerOwner();
+					GamePlayer player = m_gameClient.Player;
+					Guild playerGuild = player.Guild;
 
-					if (playerOwnerGuild == null || playerGuild == null || playerOwnerGuild != playerGuild)
+					// Leave if the player we send this packet to isn't the pet's owner and isn't in the same guild or group.
+					if (playerOwner != player)
 					{
-						Group playerOwnerGroup = playerOwner.Group;
+						Guild playerOwnerGuild = playerOwner.Guild;
 
-						if (playerOwnerGroup == null || !playerOwnerGroup.GetMembersInTheGroup().Contains(player))
-							return;
+						if (playerOwnerGuild == null || playerGuild == null || playerOwnerGuild != playerGuild)
+						{
+							Group playerOwnerGroup = playerOwner.Group;
+
+							if (playerOwnerGroup == null || !playerOwnerGroup.GetMembersInTheGroup().Contains(player))
+								return;
+						}
 					}
+
+					// Make the client believe the pet is in the same guild as them.
+					// Use a dummy guild for guildless players.
+					SendObjectGuildID(npc, playerGuild ?? GuildMgr.DummyGuild);
+					SendObjectGuildID(player, playerGuild ?? GuildMgr.DummyGuild);
 				}
-
-				// Make the client believe the pet is in the same guild as them.
-				// Use a dummy guild for guildless players.
-				SendObjectGuildID(pet, playerGuild ?? Guild.DummyGuild);
-				SendObjectGuildID(player, playerGuild ?? Guild.DummyGuild);
-			}
-
-			void SendNpcFakeFriendlyGuildID(GameNPC npc)
-			{
-				if (npc.Flags.HasFlag(GameNPC.eFlags.PEACE) || npc.Realm != eRealm.None)
+				else if ((npc.Flags & GameNPC.eFlags.PEACE) != 0 || npc.Realm is not eRealm.None)
 				{
 					GamePlayer player = m_gameClient.Player;
 					Guild playerGuild = player.Guild;
 
 					// Make the client believe the NPC is in the same guild as them.
 					// Use a dummy guild for guildless players.
-					SendObjectGuildID(npc, playerGuild ?? Guild.DummyGuild);
-					SendObjectGuildID(player, playerGuild ?? Guild.DummyGuild);
+					SendObjectGuildID(npc, playerGuild ?? GuildMgr.DummyGuild);
+					SendObjectGuildID(player, playerGuild ?? GuildMgr.DummyGuild);
 				}
 			}
 		}
@@ -505,7 +513,7 @@ namespace DOL.GS.PacketHandler
 					pak.WriteShort(0x00); // unknown
 					pak.WriteByte((byte)rewardQuest.Goals.Count);
 					pak.WriteByte((byte)rewardQuest.Level);
-					pak.WriteStringBytes(rewardQuest.Name);
+					pak.WriteNonNullTerminatedString(rewardQuest.Name);
 					pak.WritePascalString(rewardQuest.Description);
 					int goalindex = 0;
 					foreach (RewardQuest.QuestGoal goal in rewardQuest.Goals)
@@ -513,7 +521,7 @@ namespace DOL.GS.PacketHandler
 						goalindex++;
 						String goalDesc = String.Format("{0}\r", goal.Description);
 						pak.WriteShortLowEndian((ushort)goalDesc.Length);
-						pak.WriteStringBytes(goalDesc);
+						pak.WriteNonNullTerminatedString(goalDesc);
 						pak.WriteShortLowEndian((ushort)goal.ZoneID2);
 						pak.WriteShortLowEndian((ushort)goal.XOffset2);
 						pak.WriteShortLowEndian((ushort)goal.YOffset2);
@@ -542,32 +550,23 @@ namespace DOL.GS.PacketHandler
 			{
 				using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.QuestEntry)))
 				{
-					pak.WriteByte((byte)index);
+					pak.WriteByte(index);
 
-					string name = string.Format("{0} (Level {1})", quest.Name, quest.Level);
-					string desc = string.Format("[Step #{0}]: {1}", quest.Step, quest.Description);
-					if (name.Length > byte.MaxValue)
-					{
-						if (log.IsWarnEnabled)
-						{
-							log.Warn(quest.GetType().ToString() + ": name is too long for 1.68+ clients (" + name.Length + ") '" + name + "'");
-						}
-						name = name.Substring(0, byte.MaxValue);
-					}
-					if (desc.Length > byte.MaxValue)
-					{
-						if (log.IsWarnEnabled)
-						{
-							log.Warn(quest.GetType().ToString() + ": description is too long for 1.68+ clients (" + desc.Length + ") '" + desc + "'");
-						}
-						desc = desc.Substring(0, byte.MaxValue);
-					}
-					pak.WriteByte((byte)name.Length);
-					pak.WriteShortLowEndian((ushort)desc.Length);
+					ReadOnlySpan<char> nameSpan = $"{quest.Name} (Level {quest.Level})";
+					ReadOnlySpan<char> descSpan = $"[Step #{quest.Step}]: {quest.Description}";
+
+					if (nameSpan.Length > byte.MaxValue)
+						nameSpan = nameSpan[..byte.MaxValue];
+
+					if (descSpan.Length > byte.MaxValue)
+						descSpan = descSpan[..byte.MaxValue];
+
+					pak.WriteByte((byte) nameSpan.Length);
+					pak.WriteShortLowEndian((ushort) descSpan.Length);
 					pak.WriteByte(0); // Quest Zone ID ?
 					pak.WriteByte(0);
-					pak.WriteStringBytes(name); //Write Quest Name without trailing 0
-					pak.WriteStringBytes(desc); //Write Quest Description without trailing 0
+					pak.WriteNonNullTerminatedString(nameSpan); //Write Quest Name without trailing 0
+					pak.WriteNonNullTerminatedString(descSpan); //Write Quest Description without trailing 0
 
 					SendTCP(pak);
 				}
@@ -605,22 +604,24 @@ namespace DOL.GS.PacketHandler
 			byte[] siegeID = new byte[siegeWeapon.ObjectID]; // test
 			using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.SiegeWeaponAnimation)))
 			{
-				pak.WriteInt((uint)siegeWeapon.ObjectID);
+				bool isGroundTargetValid = siegeWeapon.GroundTarget.IsValid;
+
+				pak.WriteInt(siegeWeapon.ObjectID);
 				pak.WriteInt(
 					(uint)
 					(siegeWeapon.TargetObject == null
-					 ? (siegeWeapon.GroundTarget == null ? 0 : siegeWeapon.GroundTarget.X)
-					 : siegeWeapon.TargetObject.X));
+						? (!isGroundTargetValid ? 0 : siegeWeapon.GroundTarget.X)
+						: siegeWeapon.TargetObject.X));
 				pak.WriteInt(
 					(uint)
 					(siegeWeapon.TargetObject == null
-					 ? (siegeWeapon.GroundTarget == null ? 0 : siegeWeapon.GroundTarget.Y)
-					 : siegeWeapon.TargetObject.Y));
+						? (!isGroundTargetValid ? 0 : siegeWeapon.GroundTarget.Y)
+						: siegeWeapon.TargetObject.Y));
 				pak.WriteInt(
 					(uint)
 					(siegeWeapon.TargetObject == null
-					 ? (siegeWeapon.GroundTarget == null ? 0 : siegeWeapon.GroundTarget.Z)
-					 : siegeWeapon.TargetObject.Z));
+						? (!isGroundTargetValid ? 0 : siegeWeapon.GroundTarget.Z)
+						: siegeWeapon.TargetObject.Z));
 				pak.WriteInt((uint)(siegeWeapon.TargetObject == null ? 0 : siegeWeapon.TargetObject.ObjectID));
 				pak.WriteShort(siegeWeapon.Effect);
 				pak.WriteShort((ushort)(siegeWeapon.SiegeWeaponTimer.TimeUntilElapsed));
@@ -684,7 +685,7 @@ namespace DOL.GS.PacketHandler
 				pak.WriteShort(flag); //byte Ammo,  byte SiegeMoving(1/0)
 				pak.WriteByte(0);
 				pak.WriteByte(0); // Close interface(1/0)
-				pak.WriteByte((byte)(time));//time x 100 eg 50 = 5000ms
+				pak.WriteByte((byte)Math.Clamp(time, 0, 255));//time x 100 eg 50 = 5000ms
 				pak.WriteByte((byte)siegeWeapon.Ammo.Count); // external ammo count
 				pak.WriteByte((byte)siegeWeapon.SiegeWeaponTimer.CurrentAction);
 				pak.WriteByte((byte)siegeWeapon.AmmoSlot);
@@ -767,7 +768,7 @@ namespace DOL.GS.PacketHandler
 			}
 		}
 
-		protected virtual void WriteGroupMemberUpdate(GSTCPPacketOut pak, bool updateIcons, bool updateMap, GameLiving living)
+		protected override void WriteGroupMemberUpdate(GSTCPPacketOut pak, GameLiving living)
 		{
 			pak.WriteByte((byte)(living.GroupIndex + 1)); // From 1 to 8
 			if (living.CurrentRegion != m_gameClient.Player.CurrentRegion)
@@ -776,21 +777,16 @@ namespace DOL.GS.PacketHandler
 				pak.WriteByte(0x00); // mana
 				pak.WriteByte(0x00); // endu
 				pak.WriteByte(0x20); // player state (0x20 = another region)
-				if (updateIcons)
-				{
-					pak.WriteByte((byte)(0x80 | living.GroupIndex));
-					pak.WriteByte(0);
-				}
 				return;
 			}
 			var player = living as GamePlayer;
 
-			pak.WriteByte(player?.CharacterClass?.HealthPercentGroupWindow ?? living.HealthPercent);
+			pak.WriteByte(player?.HealthPercentGroupWindow ?? living.HealthPercent);
 			pak.WriteByte(living.ManaPercent);
 			pak.WriteByte(living.EndurancePercent); // new in 1.69
 
 			byte playerStatus = 0;
-			if (!living.IsAlive)
+			if (living.Health <=0)
 				playerStatus |= 0x01;
 			if (living.IsMezzed)
 				playerStatus |= 0x02;
@@ -805,46 +801,35 @@ namespace DOL.GS.PacketHandler
 			pak.WriteByte(playerStatus);
 			// 0x00 = Normal , 0x01 = Dead , 0x02 = Mezzed , 0x04 = Diseased ,
 			// 0x08 = Poisoned , 0x10 = Link Dead , 0x20 = In Another Region, 0x40 - NS
-
-			if (updateIcons)
-			{
-				pak.WriteByte((byte)(0x80 | living.GroupIndex));
-
-				byte i = 0;
-				var effects = living.effectListComponent.GetEffects();
-				if (living is GamePlayer necro && (eCharacterClass) necro.CharacterClass.ID is eCharacterClass.Necromancer && necro.HasShadeModel)
-					effects.AddRange(necro.ControlledBrain.Body.effectListComponent.GetEffects().Where(e => e.TriggersImmunity));
-				foreach (var effect in effects)
-				{
-					if (effect is ECSGameEffect && !effect.IsDisabled)
-						i++;
-				}
-				pak.WriteByte(i);
-				foreach (var effect in effects)
-				{
-					if (effect is ECSGameEffect && !effect.IsDisabled)
-					{
-						pak.WriteByte(0);
-						pak.WriteShort(effect.Icon);
-					}
-				}
-			}
-			if (updateMap)
-				WriteGroupMemberMapUpdate(pak, living);
 		}
 
-		protected override void WriteGroupMemberMapUpdate(GSTCPPacketOut pak, GameLiving living)
+		protected override void WriteGroupMemberIconsUpdate(GSTCPPacketOut pak, GameLiving living)
 		{
-			if (living.CurrentSpeed != 0)
+			pak.WriteByte((byte)(0x80 | living.GroupIndex));
+
+			if (living.CurrentRegion != m_gameClient.Player.CurrentRegion)
 			{
-				Zone zone = living.CurrentZone;
-				if (zone == null)
-					return;
-				pak.WriteByte((byte)(0x40 | living.GroupIndex));
-				//Dinberg - ZoneSkinID for group members aswell.
-				pak.WriteShort(zone.ZoneSkinID);
-				pak.WriteShort((ushort)(living.X - zone.XOffset));
-				pak.WriteShort((ushort)(living.Y - zone.YOffset));
+				pak.WriteByte(0);
+				return;
+			}
+
+			byte i = 0;
+			var effects = living.effectListComponent.GetSortedEffects();
+			if (living is GamePlayer necro && necro.CharacterClass is ClassDisciple && necro.HasShadeModel)
+				effects.AddRange(necro.ControlledBrain.Body.effectListComponent.GetSortedEffects(static e => e.TriggersImmunity));
+			foreach (var effect in effects)
+			{
+				if (effect is ECSGameEffect && !effect.IsDisabled)
+					i++;
+			}
+			pak.WriteByte(i);
+			foreach (var effect in effects)
+			{
+				if (effect is ECSGameEffect && !effect.IsDisabled)
+				{
+					pak.WriteByte(0);
+					pak.WriteShort(effect.Icon);
+				}
 			}
 		}
 
@@ -1010,10 +995,13 @@ namespace DOL.GS.PacketHandler
 				else
 					name += "[" + Money.GetString(item.SellPrice) + "]";
 			}
-			if (name == null) name = string.Empty;
-			if (name.Length > 55)
-				name = name.Substring(0, 55);
-			pak.WritePascalString(name);
+
+			ReadOnlySpan<char> nameSpan = name == null ? [] : name;
+
+			if (nameSpan.Length > MAX_NAME_LENGTH)
+				nameSpan = nameSpan[..MAX_NAME_LENGTH];
+
+			pak.WritePascalString(nameSpan);
 		}
 
 		protected override void WriteTemplateData(GSTCPPacketOut pak, DbItemTemplate template, int count)
@@ -1105,34 +1093,5 @@ namespace DOL.GS.PacketHandler
 				pak.WritePascalString(template.Name);
 		}
 
-		public override void SendGroupMemberUpdate(bool updateIcons, bool updateMap, GameLiving living)
-		{
-			if (m_gameClient.Player?.Group == null)
-				return;
-
-			var group = m_gameClient.Player.Group;
-			using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.GroupMemberUpdate)))
-			{
-				if (living.Group != group)
-					return;
-				WriteGroupMemberUpdate(pak, updateIcons, updateMap, living);
-				pak.WriteByte(0x00);
-				SendTCP(pak);
-			}
-		}
-
-		public override void SendGroupMembersUpdate(bool updateIcons, bool updateMap)
-		{
-			if (m_gameClient.Player?.Group == null)
-				return;
-
-			using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.GroupMemberUpdate)))
-			{
-				foreach (var living in m_gameClient.Player.Group.GetMembersInTheGroup())
-					WriteGroupMemberUpdate(pak, updateIcons, updateMap, living);
-				pak.WriteByte(0x00);
-				SendTCP(pak);
-			}
-		}
 	}
 }

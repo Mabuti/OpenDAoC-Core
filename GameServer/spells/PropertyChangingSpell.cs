@@ -27,7 +27,8 @@ namespace DOL.GS.Spells
 				{eProperty.Quickness, "quickness" },
 				{eProperty.Acuity, "acuity" },
 				{eProperty.ArmorFactor, "armor factor" },
-				{eProperty.ArmorAbsorption, "absorption" },
+				{eProperty.ArmorAbsorption, "armor absorption" },
+				{eProperty.PhysicalAbsorption, "physical absorption" },
 				{eProperty.WeaponSkill, "weaponskill" },
 				{eProperty.Resist_Slash, "slash" },
 				{eProperty.Resist_Crush, "crush" },
@@ -45,7 +46,7 @@ namespace DOL.GS.Spells
 
 		public override ECSGameSpellEffect CreateECSEffect(in ECSGameEffectInitParams initParams)
 		{
-			return ECSGameEffectFactory.Create(initParams, static (in ECSGameEffectInitParams i) => new StatBuffECSEffect(i));
+			return ECSGameEffectFactory.Create(initParams, static (in i) => new StatBuffECSEffect(i));
 		}
 
 		/// <summary>
@@ -71,7 +72,7 @@ namespace DOL.GS.Spells
 					if (instrument != null)
 					{
 						duration *= 1.0 + Math.Min(1.0, instrument.Level / (double)Caster.Level); // up to 200% duration for songs
-						duration *= instrument.Condition / (double)instrument.MaxCondition * instrument.Quality / 100;
+						duration *= instrument.Quality * 0.01 * instrument.ConditionPercent * 0.01;
 					}
 				}
 

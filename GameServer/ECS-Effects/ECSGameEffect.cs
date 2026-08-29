@@ -12,6 +12,7 @@ namespace DOL.GS
     {
         private State _state;
         private TransitionalState _transitionalState;
+        private Lock _stateLock = new();
 
         public long ExpireTick;
         public long StartTick;
@@ -23,35 +24,56 @@ namespace DOL.GS
         public GameLiving Owner;
         public GamePlayer OwnerPlayer;
         public long NextTick;
-        public int PreviousPosition = -1;
-        public Lock StartStopLock { get; } = new();
+
         public ISpellHandler SpellHandler { get; protected set; }
-        public virtual ushort Icon => 0;
+        public virtual ushort Icon => SpellHandler != null ? SpellHandler.Spell.Icon : (ushort) 0;
+        public virtual ushort TooltipId
+        {
+            get
+            {
+                // Workaround for abilities that don't define a tooltip ID.
+                // Get it from SpellHandler or default to Icon.
+                // Needed for cancel via shift + right click to work. Can cause collisions.
+
+                ushort tooltipId = 0;
+
+                if (SpellHandler != null)
+                    tooltipId = (ushort) SpellHandler.Spell.InternalID;
+
+                if (tooltipId == 0)
+                    tooltipId = Icon;
+
+                return tooltipId;
+            }
+        }
         public virtual string Name => "Default Effect Name";
         public virtual string OwnerName => Owner != null ? Owner.Name : string.Empty;
         public virtual bool HasPositiveEffect => false;
-        public bool TriggersImmunity { get; set; } = false;
+        public ImmunityType AppliedImmunityType => !TriggersImmunity ? ImmunityType.None : (Owner is GamePlayer ? ImmunityType.Player : ImmunityType.Npc);
+        public bool TriggersImmunity { get; set; }
         public int ImmunityDuration { get; protected set; } = 60000;
         public bool IsBeingReplaced { get; set; } // Used externally to force an effect to be silent (no message, no immunity) when being refreshed.
-        public ServiceObjectId ServiceObjectId { get; set; } = new(ServiceObjectType.Effect);
+        public int LastClientIndex { get; set; } = -1; // Used eternally for effect list updates.
+        public bool NeedsClientUpdate { get; set; } // Used eternally for effect list updates.
+        public ServiceObjectId ServiceObjectId { get; } = new(ServiceObjectType.Effect);
 
         // State properties.
         public bool IsActive => _state is State.Active;
         public bool IsDisabled => _state is State.Disabled;
-        public bool IsStopped => _state is State.Stopped;
+        public bool IsEnded => _state is State.Ended;
 
         // Transitional state properties.
         public bool CanChangeState => _transitionalState is TransitionalState.None;
         public bool IsStarting => _transitionalState is TransitionalState.Starting;
         public bool IsEnabling => _transitionalState is TransitionalState.Enabling;
         public bool IsDisabling => _transitionalState is TransitionalState.Disabling;
-        public bool IsStopping => _transitionalState is TransitionalState.Stopping;
+        public bool IsEnding => _transitionalState is TransitionalState.Ending;
 
         // Actionability properties.
         public bool CanStart => _state is State.None && CanChangeState;
         public bool CanBeDisabled => IsActive && CanChangeState;
         public bool CanBeEnabled => IsDisabled && CanChangeState;
-        public bool CanBeStopped => (IsActive || IsDisabled) && CanChangeState;
+        public bool CanBeEnded => (IsActive || IsDisabled) && CanChangeState;
 
         public ECSGameEffect(in ECSGameEffectInitParams initParams)
         {
@@ -65,12 +87,17 @@ namespace DOL.GS
             SpellHandler = initParams.SpellHandler;
         }
 
+        public virtual long GetNextTick()
+        {
+            return ExpireTick;
+        }
+
         public bool Start()
         {
-            if (!CanStart)
+            if (!CanStart || !Owner.IsAlive)
                 return false;
 
-            lock (StartStopLock)
+            lock (_stateLock)
             {
                 if (!CanStart)
                     return false;
@@ -86,7 +113,7 @@ namespace DOL.GS
             if (!CanBeEnabled)
                 return false;
 
-            lock (StartStopLock)
+            lock (_stateLock)
             {
                 if (!CanBeEnabled)
                     return false;
@@ -102,7 +129,7 @@ namespace DOL.GS
             if (!CanBeDisabled)
                 return false;
 
-            lock (StartStopLock)
+            lock (_stateLock)
             {
                 if (!CanBeDisabled)
                     return false;
@@ -113,14 +140,14 @@ namespace DOL.GS
             }
         }
 
-        public bool Stop(bool playerCanceled = false)
+        public bool End(bool playerCanceled = false)
         {
-            if (!CanBeStopped)
+            if (!CanBeEnded)
                 return false;
 
-            lock (StartStopLock)
+            lock (_stateLock)
             {
-                if (!CanBeStopped)
+                if (!CanBeEnded)
                     return false;
 
                 // Player can't remove negative or immunity effects.
@@ -132,7 +159,7 @@ namespace DOL.GS
                     return false;
                 }
 
-                _transitionalState = TransitionalState.Stopping;
+                _transitionalState = TransitionalState.Ending;
                 Owner.effectListComponent.ProcessEffect(this);
                 return true;
             }
@@ -147,7 +174,7 @@ namespace DOL.GS
         public void OnEffectStartsMsg(bool msgTarget, bool msgSelf, bool msgArea)
         {
             if (!IsBeingReplaced)
-                SendMessages(msgTarget, msgSelf, msgArea, SpellHandler.Spell.Message1, SpellHandler.Spell.Message2);
+                SendMessages(msgTarget, msgSelf, msgArea, SpellHandler.Spell.Message1, SpellHandler.Spell.Message2, eChatType.CT_Spell);
         }
 
         /// <summary>
@@ -159,7 +186,7 @@ namespace DOL.GS
         public void OnEffectExpiresMsg(bool msgTarget, bool msgSelf, bool msgArea)
         {
             if (!IsBeingReplaced)
-                SendMessages(msgTarget, msgSelf, msgArea, SpellHandler.Spell.Message3, SpellHandler.Spell.Message4);
+                SendMessages(msgTarget, msgSelf, msgArea, SpellHandler.Spell.Message3, SpellHandler.Spell.Message4, eChatType.CT_SpellExpires);
         }
 
         public virtual long GetRemainingTimeForClient()
@@ -169,8 +196,19 @@ namespace DOL.GS
 
         public virtual bool IsBetterThan(ECSGameEffect effect)
         {
-            return SpellHandler.Spell.Value * Effectiveness > effect.SpellHandler.Spell.Value * effect.Effectiveness ||
-                SpellHandler.Spell.Damage * Effectiveness > effect.SpellHandler.Spell.Damage * effect.Effectiveness;
+            // Compare spell values first if non 0. This handles DD+snare and DD+debuff spells correctly.
+            // This wouldn't handle ablative effects correctly, but those are pre-handled by EffectListComponent.
+
+            double thisSpellValue = SpellHandler.Spell.Value;
+            double otherSpellValue = effect.SpellHandler.Spell.Value;
+
+            if (thisSpellValue > 0 && otherSpellValue > 0)
+                return thisSpellValue * Effectiveness >= otherSpellValue* effect.Effectiveness;
+
+            double thisSpellDamage = SpellHandler.Spell.Damage;
+            double otherSpellDamage = effect.SpellHandler.Spell.Damage;
+
+            return thisSpellDamage * Effectiveness >= otherSpellDamage * effect.Effectiveness;
         }
 
         public virtual bool IsConcentrationEffect() { return false; }
@@ -191,26 +229,21 @@ namespace DOL.GS
                 {
                     case EffectListComponent.AddEffectResult.Added:
                     {
-                        ServiceObjectStore.Add(this);
                         _state = State.Active;
                         return true;
                     }
                     case EffectListComponent.AddEffectResult.RenewedActive:
                     {
-                        ServiceObjectStore.Add(this);
                         _state = State.Active;
                         return false;
                     }
                     case EffectListComponent.AddEffectResult.Disabled:
                     {
-                        ServiceObjectStore.Add(this);
                         _state = State.Disabled;
                         return false;
                     }
                     case EffectListComponent.AddEffectResult.RenewedDisabled:
                     {
-                        ServiceObjectStore.Add(this);
-
                         if (IsDisabled)
                         {
                             _state = State.Active;
@@ -242,14 +275,12 @@ namespace DOL.GS
                 {
                     case EffectListComponent.RemoveEffectResult.Removed:
                     {
-                        ServiceObjectStore.Remove(this);
                         bool shouldBeStopped = IsActive;
-                        _state = State.Stopped;
+                        _state = State.Ended;
                         return shouldBeStopped;
                     }
                     case EffectListComponent.RemoveEffectResult.Disabled:
                     {
-                        ServiceObjectStore.Add(this);
                         bool shouldBeStopped = IsActive;
                         _state = State.Disabled;
                         return shouldBeStopped;
@@ -265,19 +296,19 @@ namespace DOL.GS
             }
         }
 
-        private void SendMessages(bool msgTarget, bool msgSelf, bool msgArea, string firstPersonMessage, string thirdPersonMessage)
+        private void SendMessages(bool msgTarget, bool msgSelf, bool msgArea, string firstPersonMessage, string thirdPersonMessage, eChatType chatType)
         {
             // Sends a first-person message directly to the caster's target, if they are a player.
             if (msgTarget && Owner is GamePlayer playerTarget)
                 // "You feel more dexterous!"
-                ((SpellHandler) SpellHandler).MessageToLiving(playerTarget, firstPersonMessage, eChatType.CT_Spell);
+                ((SpellHandler) SpellHandler).MessageToLiving(playerTarget, firstPersonMessage, chatType);
 
             GameLiving toExclude = null; // Either the caster or the owner if it's a pet.
 
             // Sends a third-person message directly to the caster to indicate the spell had landed, regardless of range.
             if (msgSelf && SpellHandler.Caster != Owner)
             {
-                ((SpellHandler) SpellHandler).MessageToCaster(Util.MakeSentence(thirdPersonMessage, Owner.GetName(0, true)), eChatType.CT_Spell);
+                ((SpellHandler) SpellHandler).MessageToCaster(Util.MakeSentence(thirdPersonMessage, Owner.GetName(0, true)), chatType);
 
                 if (SpellHandler.Caster is GamePlayer)
                     toExclude = SpellHandler.Caster;
@@ -297,25 +328,37 @@ namespace DOL.GS
                     toExclude = SpellHandler.Caster;
 
                 // "{0} looks more agile!"
-                Message.SystemToArea(Owner, Util.MakeSentence(thirdPersonMessage, Owner.GetName(0, thirdPersonMessage.StartsWith("{0}"))), eChatType.CT_Spell, Owner, toExclude);
+                Message.SystemToArea(Owner, Util.MakeSentence(thirdPersonMessage, Owner.GetName(0, thirdPersonMessage.StartsWith("{0}"))), chatType, Owner, toExclude);
             }
+        }
+
+        public override string ToString()
+        {
+            return $"Name={Name} Type={EffectType} Start={StartTick} End={ExpireTick} State={_state}|{_transitionalState}";
+        }
+
+        public enum ImmunityType
+        {
+            None,
+            Player,     // Player-style immunity. Effects triggering this immunity should not be allowed to be refreshed.
+            Npc         // NPC-style immunity, on which diminishing returns may apply.
         }
 
         private enum State
         {
             None,
-            Active,
-            Disabled,
-            Stopped
+            Active,     // Effect is active and applying its benefits/penalties.
+            Disabled,   // Effect is temporarily disabled, not applying its benefits/penalties.
+            Ended       // Effect has ended and is to be removed.
         }
 
         private enum TransitionalState
         {
             None,
-            Starting,
-            Enabling,
-            Disabling,
-            Stopping
+            Starting,   // Effect is being started.
+            Enabling,   // Effect is being enabled, resuming its benefits/penalties and transitioning from disabled to active.
+            Disabling,  // Effect is being disabled, pausing its benefits/penalties.
+            Ending      // Effect is being ended.
         }
     }
 }

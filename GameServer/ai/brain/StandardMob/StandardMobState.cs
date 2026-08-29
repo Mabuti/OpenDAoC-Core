@@ -1,13 +1,10 @@
-﻿using System.Reflection;
-using DOL.GS;
+﻿using DOL.GS;
 using DOL.GS.ServerProperties;
 
 namespace DOL.AI.Brain
 {
-    public class StandardMobState : FSMState
+    public abstract class StandardMobState : FSMState
     {
-        protected static readonly Logging.Logger log = Logging.LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
-
         protected StandardMobBrain _brain = null;
 
         public StandardMobState(StandardMobBrain brain) : base()
@@ -22,10 +19,9 @@ namespace DOL.AI.Brain
 
     public class StandardMobState_WAKING_UP : StandardMobState
     {
-        public StandardMobState_WAKING_UP(StandardMobBrain brain) : base(brain)
-        {
-            StateType = eFSMStateType.WAKING_UP;
-        }
+        public override eFSMStateType StateType => eFSMStateType.WAKING_UP;
+
+        public StandardMobState_WAKING_UP(StandardMobBrain brain) : base(brain) { }
 
         public override void Enter()
         {
@@ -45,21 +41,23 @@ namespace DOL.AI.Brain
         public override void Think()
         {
             _brain.FSM.SetCurrentState(eFSMStateType.IDLE);
-            _brain.Think();
         }
     }
 
     public class StandardMobState_IDLE : StandardMobState
     {
-        public StandardMobState_IDLE(StandardMobBrain brain) : base(brain)
-        {
-            StateType = eFSMStateType.IDLE;
-        }
+        public override eFSMStateType StateType => eFSMStateType.IDLE;
+
+        public StandardMobState_IDLE(StandardMobBrain brain) : base(brain) { }
 
         public override void Enter()
         {
-            _brain.Body.StopMoving();
-            _brain.NextThinkTick -= _brain.ThinkInterval; // Don't stay in IDLE for a full think cycle.
+            GameNPC npc = _brain.Body;
+            npc.StopMoving();
+
+            if (npc.IsAtSpawn && npc.Heading != npc.SpawnHeading)
+                npc.TurnTo(npc.SpawnHeading);
+
             base.Enter();
         }
 
@@ -68,19 +66,18 @@ namespace DOL.AI.Brain
             if (_brain.CheckSpells(StandardMobBrain.eCheckSpellType.Defensive))
                 return;
 
-            if (_brain.HasPatrolPath())
+            GameNPC npc = _brain.Body;
+
+            if (npc.CanMoveOnPath)
                 _brain.FSM.SetCurrentState(eFSMStateType.PATROLLING);
-            else if (!_brain.Body.IsNearSpawn)
+            else if (!npc.IsAtSpawn)
                 _brain.FSM.SetCurrentState(eFSMStateType.RETURN_TO_SPAWN);
             else if (_brain.CheckProximityAggro())
                 _brain.FSM.SetCurrentState(eFSMStateType.AGGRO);
-            else if (_brain.Body.CanRoam)
+            else if (npc.CanRoam)
                 _brain.FSM.SetCurrentState(eFSMStateType.ROAMING);
 
-            if (_brain.FSM.GetCurrentState() != this)
-                _brain.NextThinkTick -= _brain.ThinkInterval; // Don't stay in IDLE for a full think cycle.
-            else
-                base.Think();
+            base.Think();
         }
     }
 
@@ -89,10 +86,9 @@ namespace DOL.AI.Brain
         private const int LEAVE_WHEN_OUT_OF_COMBAT_FOR = 25000;
         private long _aggroEndTime; // Used to prevent leaving on the first think tick, due to `InCombatInLast` returning false.
 
-        public StandardMobState_AGGRO(StandardMobBrain brain) : base(brain)
-        {
-            StateType = eFSMStateType.AGGRO;
-        }
+        public override eFSMStateType StateType => eFSMStateType.AGGRO;
+
+        public StandardMobState_AGGRO(StandardMobBrain brain) : base(brain) { }
 
         public override void Enter()
         {
@@ -103,6 +99,8 @@ namespace DOL.AI.Brain
 
         public override void Exit()
         {
+            _brain.ClearAggroList();
+
             if (_brain.Body.attackComponent.AttackState)
                 _brain.Body.StopAttack();
 
@@ -143,10 +141,14 @@ namespace DOL.AI.Brain
         protected virtual short Speed => NpcMovementComponent.DEFAULT_WALK_SPEED;
         protected virtual int MinCooldown => Properties.GAMENPC_ROAM_COOLDOWN_MIN;
         protected virtual int MaxCooldown => Properties.GAMENPC_ROAM_COOLDOWN_MAX;
+        public override eFSMStateType StateType => eFSMStateType.ROAMING;
 
-        public StandardMobState_ROAMING(StandardMobBrain brain) : base(brain)
+        public StandardMobState_ROAMING(StandardMobBrain brain) : base(brain) { }
+
+        public override void Enter()
         {
-            StateType = eFSMStateType.ROAMING;
+            // Ensure NPCs don't start roaming immediately.
+            _nextRoamingTickSet = false;
         }
 
         public override void Think()
@@ -157,7 +159,7 @@ namespace DOL.AI.Brain
                 return;
             }
 
-            if (!_brain.Body.IsCasting && !_brain.Body.IsMoving && !_brain.Body.movementComponent.HasActiveResetHeadingAction)
+            if (!_brain.Body.IsCasting && !_brain.Body.IsMoving && !_brain.Body.movementComponent.HasActiveResetHeadingTimer)
             {
                 if (!_nextRoamingTickSet)
                 {
@@ -182,28 +184,24 @@ namespace DOL.AI.Brain
     public class StandardMobState_RETURN_TO_SPAWN : StandardMobState
     {
         protected virtual short Speed => NpcMovementComponent.DEFAULT_WALK_SPEED;
+        public override eFSMStateType StateType => eFSMStateType.RETURN_TO_SPAWN;
 
-        public StandardMobState_RETURN_TO_SPAWN(StandardMobBrain brain) : base(brain)
-        {
-            StateType = eFSMStateType.RETURN_TO_SPAWN;
-        }
+        public StandardMobState_RETURN_TO_SPAWN(StandardMobBrain brain) : base(brain) { }
 
         public override void Enter()
         {
-            _brain.ClearAggroList();
+            _brain.Body.ReturnToSpawnPoint(Speed);
             base.Enter();
         }
 
         public override void Think()
         {
-            if (_brain.Body.IsNearSpawn)
+            if (_brain.Body.IsAtSpawn)
             {
                 _brain.FSM.SetCurrentState(eFSMStateType.IDLE);
                 _brain.Body.TurnTo(_brain.Body.SpawnHeading);
-                return;
             }
-
-            if (!_brain.Body.IsReturningToSpawnPoint)
+            else if (!_brain.Body.IsMoving)
                 _brain.Body.ReturnToSpawnPoint(Speed);
 
             base.Think();
@@ -212,27 +210,42 @@ namespace DOL.AI.Brain
 
     public class StandardMobState_PATROLLING : StandardMobState
     {
-        public StandardMobState_PATROLLING(StandardMobBrain brain) : base(brain)
-        {
-            StateType = eFSMStateType.PATROLLING;
-        }
+        public override eFSMStateType StateType => eFSMStateType.PATROLLING;
+
+        public StandardMobState_PATROLLING(StandardMobBrain brain) : base(brain) { }
 
         public override void Enter()
         {
             _brain.Body.MoveOnPath(_brain.Body.MaxSpeed);
-            _brain.ClearAggroList();
             base.Enter();
+        }
+
+        public override void Exit()
+        {
+            _brain.Body.StopMovingOnPath();
+            base.Exit();
         }
 
         public override void Think()
         {
+            // While NPCs will resume their path after casting a spell or losing aggro, they will do it by moving to the previous node.
+            // Need to find a better way to do this, for example by saving the current position and resuming from there.
+
+            if (_brain.CheckSpells(StandardMobBrain.eCheckSpellType.Defensive))
+                return;
+
             if (_brain.CheckProximityAggro())
             {
                 _brain.FSM.SetCurrentState(eFSMStateType.AGGRO);
                 return;
             }
 
-            // TODO: NPCs can get stuck here. Find a way to resume patrols.
+            if (!_brain.Body.IsMovingOnPath)
+            {
+                _brain.FSM.SetCurrentState(eFSMStateType.IDLE);
+                return;
+            }
+
             base.Think();
         }
     }

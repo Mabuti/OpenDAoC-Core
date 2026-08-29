@@ -65,8 +65,8 @@ namespace DOL.AI.Brain
             AggroLevel = 100;
             AggroRange = 500;
         }
-        public static GameLiving TeleportTarget = null;
-        public static bool CanPoison = false;
+        public GameLiving TeleportTarget = null;
+        public bool CanPoison = false;
         public override void OnAttackedByEnemy(AttackData ad)
         {
             if(ad != null && ad.Attacker != null && Body.TargetObject != ad.Attacker && CanPoison==false)
@@ -146,13 +146,12 @@ namespace DOL.AI.Brain
                     spell.Duration = 45;
                     spell.Frequency = 40; //dot tick every 4s
                     spell.SpellID = 11783;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = "DamageOverTime";
                     spell.Uninterruptible = true;
                     spell.MoveCast = true;
                     spell.DamageType = (int)eDamageType.Spirit; //Spirit DMG Type
                     m_BaneOfHope_Aoe_Dot = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_BaneOfHope_Aoe_Dot);
                 }
 
                 return m_BaneOfHope_Aoe_Dot;

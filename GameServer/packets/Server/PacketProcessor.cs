@@ -6,7 +6,6 @@ using System.Reflection;
 using System.Threading;
 using DOL.Logging;
 using DOL.Network;
-using ECS.Debug;
 
 namespace DOL.GS.PacketHandler
 {
@@ -190,15 +189,7 @@ namespace DOL.GS.PacketHandler
 
             try
             {
-                long startTick = GameLoop.GetRealTime();
                 packetHandler.HandlePacket(_client, packet);
-                long stopTick = GameLoop.GetRealTime();
-
-                if (log.IsWarnEnabled)
-                {
-                    if (stopTick - startTick > Diagnostics.LongTickThreshold)
-                        log.Warn($"Long {nameof(PacketProcessor)}.{nameof(ProcessInboundPacket)} ({(eClientPackets) packet.Code}) for {_client.Player?.Name}({_client.Player?.ObjectID}) Time: {stopTick - startTick}ms");
-                }
             }
             catch (Exception e)
             {
@@ -318,12 +309,11 @@ namespace DOL.GS.PacketHandler
                 udpSendArgs.Dispose();
 
             // Drain all pending packets on the next game loop tick to avoid concurrent modification issues.
-            GameLoopThreadPool.Context.Post(static state =>
+            GameLoopService.Instance.Post(static state =>
             {
-                PacketProcessor packetProcessor = state as PacketProcessor;
-                packetProcessor._tcpPacketQueue.DrainTo(static packet => packet.ReleasePooledObject());
-                packetProcessor._udpToTcpPacketQueue.DrainTo(static packet => packet.ReleasePooledObject());
-                packetProcessor._udpPacketQueue.DrainTo(static packet => packet.ReleasePooledObject());
+                state._tcpPacketQueue.DrainTo(static packet => packet.ReleasePooledObject());
+                state._udpToTcpPacketQueue.DrainTo(static packet => packet.ReleasePooledObject());
+                state._udpPacketQueue.DrainTo(static packet => packet.ReleasePooledObject());
             }, this);
         }
 
@@ -514,8 +504,8 @@ namespace DOL.GS.PacketHandler
                 log.Error($"{Marshal.ToHexDump(description, packetBuffer)}\n{Environment.StackTrace}");
             }
 
-            // Cannot enqueue packets here.
-            GameLoopThreadPool.Context.Post(static state =>
+            // Cannot enqueue packets now.
+            GameLoopService.Instance.Post(static state =>
             {
                 var s = ((GameClient Client, byte Code, int Size)) state;
                 s.Client.Out.SendMessage($"Oversized packet detected and discarded (code: 0x{s.Code:X2}) (size: {s.Size}). Please report this issue!", eChatType.CT_Staff, eChatLoc.CL_SystemWindow);
@@ -530,7 +520,7 @@ namespace DOL.GS.PacketHandler
             {
                 if (!_client.Socket.Connected)
                 {
-                    OnFailure();
+                    OnFailure(this);
                     return;
                 }
 
@@ -541,21 +531,21 @@ namespace DOL.GS.PacketHandler
             }
             catch (ObjectDisposedException)
             {
-                OnFailure();
+                OnFailure(this);
             }
             catch (SocketException e)
             {
                 if (log.IsDebugEnabled)
                     log.Debug($"Socket exception on TCP send (Client: {_client}) (Code: {e.SocketErrorCode})");
 
-                OnFailure();
+                OnFailure(this);
             }
             catch (Exception e)
             {
                 if (log.IsErrorEnabled)
                     log.Error($"Unhandled exception on TCP send (Client: {_client}): {e}");
 
-                OnFailure();
+                OnFailure(this);
             }
             finally
             {
@@ -563,9 +553,9 @@ namespace DOL.GS.PacketHandler
                 _sendContext.Position = 0;
             }
 
-            void OnFailure()
+            static void OnFailure(PacketProcessor processor)
             {
-                _tcpSendArgsPool.Enqueue(_sendContext.CurrentArgs);
+                processor._tcpSendArgsPool.Enqueue(processor._sendContext.CurrentArgs);
             }
         }
 
@@ -575,7 +565,7 @@ namespace DOL.GS.PacketHandler
             {
                 if (!_client.Socket.Connected)
                 {
-                    OnFailure();
+                    OnFailure(this);
                     return;
                 }
 
@@ -586,21 +576,21 @@ namespace DOL.GS.PacketHandler
             }
             catch (ObjectDisposedException)
             {
-                OnFailure();
+                OnFailure(this);
             }
             catch (SocketException e)
             {
                 if (log.IsDebugEnabled)
                     log.Debug($"Socket exception on UDP send (Client: {_client}) (Code: {e.SocketErrorCode})");
 
-                OnFailure();
+                OnFailure(this);
             }
             catch (Exception e)
             {
                 if (log.IsErrorEnabled)
                     log.Error($"Unhandled exception on UDP send (Client: {_client}): {e}");
 
-                OnFailure();
+                OnFailure(this);
             }
             finally
             {
@@ -608,10 +598,10 @@ namespace DOL.GS.PacketHandler
                 _sendContext.Position = 0;
             }
 
-            void OnFailure()
+            static void OnFailure(PacketProcessor processor)
             {
-                _client.UdpConfirm = false;
-                _udpSendArgsPool.Enqueue(_sendContext.CurrentArgs);
+                processor._client.UdpConfirm = false;
+                processor._udpSendArgsPool.Enqueue(processor._sendContext.CurrentArgs);
             }
         }
 

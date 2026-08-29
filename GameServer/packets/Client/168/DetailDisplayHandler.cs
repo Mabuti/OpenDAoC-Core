@@ -8,21 +8,19 @@ using DOL.GS.RealmAbilities;
 using DOL.GS.Spells;
 using DOL.GS.Styles;
 using DOL.Language;
+using DOL.Logging;
 
 namespace DOL.GS.PacketHandler.Client.v168
 {
-    /// <summary>
-    /// delve button shift+i = detail of spell object...
-    /// </summary>
-    [PacketHandlerAttribute(PacketHandlerType.TCP, eClientPackets.DetailRequest, "Handles detail display", eClientStatus.PlayerInGame)]
-	public class DetailDisplayHandler : IPacketHandler
+	/// <summary>
+	/// delve button shift+i = detail of spell object...
+	/// </summary>
+	[PacketHandlerAttribute(PacketHandlerType.TCP, eClientPackets.DetailRequest, "Handles detail display", eClientStatus.PlayerInGame)]
+	public class DetailDisplayHandler : PacketHandler
 	{
-		/// <summary>
-		/// Defines a logger for this class.
-		/// </summary>
-		protected static readonly Logging.Logger log = Logging.LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
+		protected static readonly Logger log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
 
-		public void HandlePacket(GameClient client, GSPacketIn packet)
+		protected override void HandlePacketInternal(GameClient client, GSPacketIn packet)
 		{
 			if (client?.Player == null) 
 				return;
@@ -72,7 +70,7 @@ namespace DOL.GS.PacketHandler.Client.v168
 
 							// first try any active inventory object
 							if (invItem == null)
-								client.Player.ActiveInventoryObject?.GetClientInventory(client.Player)?.TryGetValue(objectId, out invItem);
+								client.Player.ActiveInventoryObject?.TryGetItem(objectId, out invItem);
 
 							// Failed to get any inventory
 							if (invItem == null)
@@ -141,7 +139,7 @@ namespace DOL.GS.PacketHandler.Client.v168
 						{
 							WriteUsableClasses(objectInfo, invItem, client);
 							WriteMagicalBonuses(objectInfo, invItem, client, false);
-							WriteClassicWeaponInfos(objectInfo, invItem, client);
+						WriteClassicWeaponInfos(objectInfo, invItem, client);
 						}
 
 						if (invItem.Object_Type >= (int)eObjectType.Cloth && invItem.Object_Type <= (int)eObjectType.Scale)
@@ -428,11 +426,11 @@ namespace DOL.GS.PacketHandler.Client.v168
 						}
 
 						if ((item.Object_Type >= (int)eObjectType.GenericWeapon) && (item.Object_Type <= (int)eObjectType.MaulerStaff) ||
-						    item.Object_Type == (int)eObjectType.Instrument)
+							item.Object_Type == (int)eObjectType.Instrument)
 						{
 							WriteUsableClasses(objectInfo, item, client);
 							WriteMagicalBonuses(objectInfo, item, client, false);
-							WriteClassicWeaponInfos(objectInfo, GameInventoryItem.Create(item), client);
+						WriteClassicWeaponInfos(objectInfo, GameInventoryItem.Create(item), client);
 						}
 
 						if (item.Object_Type >= (int)eObjectType.Cloth && item.Object_Type <= (int)eObjectType.Scale)
@@ -446,7 +444,7 @@ namespace DOL.GS.PacketHandler.Client.v168
 						{
 							WriteUsableClasses(objectInfo, item, client);
 							WriteMagicalBonuses(objectInfo, item, client, false);
-							WriteClassicShieldInfos(objectInfo, item, client);
+							WriteClassicShieldInfos(objectInfo, GameInventoryItem.Create(item), client);
 						}
 
 						if ((item.Item_Type != (int)eInventorySlot.Horse && item.Object_Type == (int)eObjectType.Magical)
@@ -539,7 +537,7 @@ namespace DOL.GS.PacketHandler.Client.v168
 						// 		}
 						// 	}
 						// }
-						ECSGameEffect foundEffect = client.Player.effectListComponent.TryGetEffectFromEffectId(objectId);
+						ECSGameEffect foundEffect = client.Player.effectListComponent.TryGetEffectByTooltipId(objectId);
 						ECSGameSpellEffect spellEffect = foundEffect as ECSGameSpellEffect;
 						if (foundEffect == null)
 							break;
@@ -548,7 +546,7 @@ namespace DOL.GS.PacketHandler.Client.v168
 						if (spellEffect is null)
 							break;							
 
-                        caption = spellEffect.Name;
+						caption = spellEffect.Name;
 						objectInfo.AddRange(spellEffect.SpellHandler.DelveInfo);						
 
 						if (client.Account.PrivLevel > 1 && spellEffect.SpellHandler.Spell != null)
@@ -614,11 +612,11 @@ namespace DOL.GS.PacketHandler.Client.v168
 							objectInfo.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.HandlePacket.ChampionLevel", invItem.Level));
 						}
 						if ((invItem.Object_Type >= (int)eObjectType.GenericWeapon) && (invItem.Object_Type <= (int)eObjectType.MaulerStaff) ||
-						    invItem.Object_Type == (int)eObjectType.Instrument)
+							invItem.Object_Type == (int)eObjectType.Instrument)
 						{
 							WriteUsableClasses(objectInfo, invItem, client);
 							WriteMagicalBonuses(objectInfo, invItem, client, false);
-							WriteClassicWeaponInfos(objectInfo, invItem, client);
+						WriteClassicWeaponInfos(objectInfo, GameInventoryItem.Create(invItem), client);
 						}
 
 						if (invItem.Object_Type >= (int)eObjectType.Cloth && invItem.Object_Type <= (int)eObjectType.Scale)
@@ -897,30 +895,32 @@ namespace DOL.GS.PacketHandler.Client.v168
 				case 24://SpellsNew
 					if (client.CanSendTooltip(24, objectId))
 					{
-						var spell = SkillBase.GetSpellByTooltipID(objectId);
+						Spell spell = FindSpellForTooltip(client, objectId, snapSkills, snapLists);
 						client.Out.SendDelveInfo(DelveSpell(client, spell));
 					}
 					break;
 				case 25://StylesNew
 					if (client.CanSendTooltip(25, objectId))
-	                    client.Out.SendDelveInfo(DelveStyle(client, objectId));
-                    break;
+						client.Out.SendDelveInfo(DelveStyle(client, objectId));
+					break;
 				case 26://SongsNew
 					{
 						if (client.CanSendTooltip(26, objectId))
-							client.Out.SendDelveInfo(DelveSong(client, objectId));
-						var spell = SkillBase.GetSpellByTooltipID(objectId);
-						client.Out.SendDelveInfo(DelveSpell(client, spell));
+						{
+							Spell spell = FindSpellForTooltip(client, objectId, snapSkills, snapLists);
+							client.Out.SendDelveInfo(DelveSong(client, spell));
+							client.Out.SendDelveInfo(DelveSpell(client, spell));
+						}
 					}
 					break;
 				case 27://RANew
 					if (client.CanSendTooltip(27, objectId))
-	                   client.Out.SendDelveInfo(DelveRealmAbility(client, objectId));
-                    break;
+					   client.Out.SendDelveInfo(DelveRealmAbility(client, objectId));
+					break;
 				case 28://AbilityNew
-                    if (client.CanSendTooltip(28, objectId))
-				        client.Out.SendDelveInfo(DelveAbility(client, objectId));
-			        break;
+					if (client.CanSendTooltip(28, objectId))
+						client.Out.SendDelveInfo(DelveAbility(client, objectId));
+					break;
 				#endregion
 				#region ChampionAbilities delve from trainer window
 				default:
@@ -978,6 +978,58 @@ namespace DOL.GS.PacketHandler.Client.v168
 				client.Out.SendCustomTextWindow(caption, objectInfo);
 			else if ((objectType < 24 || objectType > 28) && objectType < 150) // only warn for non v1.110+ objects
 				log.Warn($"DetailDisplayHandler no info for objectID {objectId} of type {objectType}. Item: {item?.Id_nb ?? (invItem?.Id_nb ?? "null")}, client: {client}");
+		}
+
+		private static Spell FindSpellForTooltip(
+			GameClient client,
+			ushort tooltipId,
+			List<(Skill, Skill)> usableSkills,
+			List<(SpellLine, List<Skill>)> usableSpellLists)
+		{
+			// We can't rely on SkillBase.GetSpellByTooltipID exclusively because the returned spells are level 1.
+			// Retrieving the spell from the player's effect list component handles all effects currently present on the player.
+			// If this fails, checking useable spells handles the spell list.
+
+			foreach (ECSGameSpellEffect spellEffect in client.Player.effectListComponent.GetSpellEffects())
+			{
+				Spell spell = spellEffect.SpellHandler.Spell;
+
+				// Normally defined spell.
+				if (spell.InternalID > 0)
+				{
+					if (spell.InternalID == tooltipId)
+						return spell;
+
+					continue;
+				}
+
+				// Spells that don't define InternalID generally define Icon instead.
+				// This is the case of procedurally created spells that weren't passed to SkillBase.AddScriptedSpell (typically spells spawned by RAs).
+				// We have to reply to the client with the correct value and update Spell.InternalId.
+				if (spellEffect.Icon == tooltipId)
+				{
+					spell.InternalID = tooltipId;
+					return spell;
+				}
+			}
+
+			foreach ((SpellLine _, List<Skill> skills) in usableSpellLists)
+			{
+				foreach (Skill skill in skills)
+				{
+					if (skill is Spell spell && spell.InternalID == tooltipId)
+						return spell;
+				}
+			}
+
+			foreach ((Skill skill, Skill _) in usableSkills)
+			{
+				if (skill is Spell spell && spell.InternalID == tooltipId)
+					return spell;
+			}
+
+			// Fallback. The spell level will be 1.
+			return SkillBase.GetSpellByTooltipID(tooltipId);
 		}
 
 		public static void WriteStyleInfo(List<string> objectInfo, Style style, GameClient client)
@@ -1047,9 +1099,9 @@ namespace DOL.GS.PacketHandler.Client.v168
 			}
 		}
 
-        public void WriteTechnicalInfo(IList<string> output, GameClient client, DbInventoryItem item)
+		public void WriteTechnicalInfo(IList<string> output, GameClient client, DbInventoryItem item)
 		{
-            WriteTechnicalInfo(output, client, item, item.Durability, item.Condition);
+			WriteTechnicalInfo(output, client, item, item.Durability, item.Condition);
 		}
 
 		public void WriteTechnicalInfo(IList<string> output, GameClient client, DbInventoryItem item, int dur, int con)
@@ -1157,7 +1209,7 @@ namespace DOL.GS.PacketHandler.Client.v168
 				WriteClassicShieldInfos(objectInfo, item, client);
 			}
 			if (item.Object_Type == (int)eObjectType.Magical ||
-			    item.Object_Type == (int)eObjectType.Instrument)
+				item.Object_Type == (int)eObjectType.Instrument)
 			{
 				WriteMagicalBonuses(objectInfo, item, client, true);
 			}
@@ -1199,51 +1251,46 @@ namespace DOL.GS.PacketHandler.Client.v168
 		/// Effective Damage:
 		/// - X.X DPS
 		/// </summary>
-		public void WriteClassicWeaponInfos(IList<string> output, DbInventoryItem item, GameClient client)
+		public static void WriteClassicWeaponInfos(IList<string> output, DbInventoryItem item, GameClient client)
 		{
-			double itemDPS = item.DPS_AF / 10.0;
-			double clampedDPS = Math.Min(itemDPS, 1.2 + 0.3 * client.Player.Level);
-			double itemSPD = item.SPD_ABS / 10.0;
-			double effectiveDPS = clampedDPS * item.Quality / 100.0 * item.Condition / item.Template.MaxCondition;
+			double itemDps = item.DPS_AF * 0.1;
+			double clampedDps = Math.Min(itemDps, client.Player.GetWeaponDpsCap());
+			double itemSpd = item.SPD_ABS * 0.1;
+			double effectiveDps = clampedDps * item.Quality * 0.01 * item.ConditionPercent * 0.01;
+			string damageType = item.Type_Damage == 0 ? "None" : GlobalConstants.WeaponDamageTypeToName(item.Type_Damage);
 
 			output.Add(" ");
 			output.Add(" ");
 			output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicWeaponInfos.DamageMod"));
-			if (itemDPS != 0)
+
+			if (itemDps != 0)
 			{
-				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicWeaponInfos.BaseDPS", itemDPS.ToString("0.0")));
-				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicWeaponInfos.ClampDPS", clampedDPS.ToString("0.0")));
+				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicWeaponInfos.BaseDPS", itemDps.ToString("0.0")));
+				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicWeaponInfos.ClampDPS", clampedDps.ToString("0.0")));
 			}
 
 			if (item.SPD_ABS >= 0)
-			{
-				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicWeaponInfos.SPD", itemSPD.ToString("0.0")));
-			}
+				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicWeaponInfos.SPD", itemSpd.ToString("0.0")));
 
 			if (item.Quality != 0)
-			{
 				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicWeaponInfos.Quality", item.Quality));
-			}
+
 			if (item.Condition != 0)
-			{
 				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicWeaponInfos.Condition", item.ConditionPercent));
-			}
 
-			output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicWeaponInfos.DamageType",
-			                                      (item.Type_Damage == 0 ? "None" : GlobalConstants.WeaponDamageTypeToName(item.Type_Damage))));
+			output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicWeaponInfos.DamageType", damageType));
 			output.Add(" ");
-
 			output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicWeaponInfos.EffDamage"));
-			if (itemDPS != 0)
-			{
-				output.Add("- " + effectiveDPS.ToString("0.0") + " DPS");
-			}
+
+			if (effectiveDps != 0)
+				output.Add($"- {effectiveDps:0.0} DPS");
 		}
 
 		public void WriteUsableClasses(IList<string> output, DbInventoryItem item, GameClient client)
 		{
 			WriteUsableClasses(output, item.Template, client);
 		}
+
 		public void WriteUsableClasses(IList<string> output, DbItemTemplate item, GameClient client)
 		{
 			if (string.IsNullOrEmpty(item.AllowedClasses))
@@ -1268,35 +1315,37 @@ namespace DOL.GS.PacketHandler.Client.v168
 		/// </summary>
 		public void WriteClassicShieldInfos(IList<string> output, DbInventoryItem item, GameClient client)
 		{
-			WriteClassicShieldInfos(output, item.Template, client);
-		}
-		public void WriteClassicShieldInfos(IList<string> output, DbItemTemplate item, GameClient client)
-		{
-			double itemDPS = item.DPS_AF / 10.0;
-			double clampedDPS = Math.Min(itemDPS, 1.2 + 0.3 * client.Player.Level);
-			double itemSPD = item.SPD_ABS / 10.0;
+			double itemDps = item.DPS_AF * 0.1;
+			double clampedDps = Math.Min(itemDps, client.Player.GetWeaponDpsCap());
+			double itemSpd = item.SPD_ABS * 0.1;
+			double effectiveDps = clampedDps * item.Quality * 0.01 * item.ConditionPercent * 0.01;
 
 			output.Add(" ");
 			output.Add(" ");
 			output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.DamageMod"));
-			if (itemDPS != 0)
+
+			if (itemDps != 0)
 			{
-				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.BaseDPS", itemDPS.ToString("0.0")));
-				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.ClampDPS", clampedDPS.ToString("0.0")));
+				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.BaseDPS", itemDps.ToString("0.0")));
+				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.ClampDPS", clampedDps.ToString("0.0")));
 			}
+
 			if (item.SPD_ABS >= 0)
 			{
-				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.SPD", itemSPD.ToString("0.0")));
+				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.SPD", itemSpd.ToString("0.0")));
 			}
 
 			output.Add(" ");
 
 			switch (item.Type_Damage)
 			{
-					case 1: output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.Small")); break;
-					case 2: output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.Medium")); break;
-					case 3: output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.Large")); break;
+				case 1: output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.Small")); break;
+				case 2: output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.Medium")); break;
+				case 3: output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.Large")); break;
 			}
+
+			if (effectiveDps != 0)
+				output.Add($"- {effectiveDps:0.0} DPS");
 		}
 
 		/// <summary>
@@ -1316,45 +1365,38 @@ namespace DOL.GS.PacketHandler.Client.v168
 			output.Add(" ");
 			output.Add(" ");
 			output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicArmorInfos.ArmorMod"));
+
 			if (item.DPS_AF != 0)
 			{
 				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicArmorInfos.BaseFactor", item.DPS_AF));
 			}
-			double AF = 0;
+
+			double armorFactor = 0;
+
 			if (item.DPS_AF != 0)
 			{
-				int afCap = client.Player.Level;
-				if (item.Object_Type != (int)eObjectType.Cloth)
-				{
-					afCap *= 2;
-				}
-
-				AF = Math.Min(afCap, item.DPS_AF);
-
-				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicArmorInfos.ClampFact", (int)AF));
+				_ = client.Player.GetArmorFactorCap((eObjectType) item.Object_Type, out int itemArmorFactorCap);
+				armorFactor = Math.Min(itemArmorFactorCap, item.DPS_AF);
+				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicArmorInfos.ClampFact", (int) armorFactor));
 			}
+
 			if (item.SPD_ABS >= 0)
-			{
 				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicArmorInfos.Absorption", item.SPD_ABS));
-			}
-			if (item.Quality != 0)
-			{
-				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicArmorInfos.Quality", item.Quality));
-			}
-			if (item.Condition != 0)
-			{
-				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicArmorInfos.Condition", 100 /*item.ConditionPercent*/));
-			}
-			output.Add(" ");
 
+			if (item.Quality != 0)
+				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicArmorInfos.Quality", item.Quality));
+
+			if (item.Condition != 0)
+				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicArmorInfos.Condition", 100 /*item.ConditionPercent*/));
+
+			output.Add(" ");
 			output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicArmorInfos.EffArmor"));
-			double EAF = 0;
+
 			if (item.DPS_AF != 0)
 			{
-				EAF = AF * item.Quality / 100.0 * item.Condition / item.MaxCondition * (1 + item.SPD_ABS / 100.0);
-				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicArmorInfos.Factor", (int)EAF));
+				int effectiveArmorFactor = (int) (armorFactor * item.Quality * 0.01 * item.ConditionPercent * 0.01 * (1 + item.SPD_ABS * 0.01));
+				output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicArmorInfos.Factor", effectiveArmorFactor));
 			}
-
 		}
 
 		public void WriteMagicalBonuses(List<string> output, DbItemTemplate item, GameClient client, bool shortInfo)
@@ -1367,16 +1409,16 @@ namespace DOL.GS.PacketHandler.Client.v168
 			int oldCount = output.Count;
 
 			WriteBonusLine(output, client, item.Bonus1Type, item.Bonus1);
-            WriteBonusLine(output, client, item.Bonus2Type, item.Bonus2);
-            WriteBonusLine(output, client, item.Bonus3Type, item.Bonus3);
-            WriteBonusLine(output, client, item.Bonus4Type, item.Bonus4);
-            WriteBonusLine(output, client, item.Bonus5Type, item.Bonus5);
-            WriteBonusLine(output, client, item.Bonus6Type, item.Bonus6);
-            WriteBonusLine(output, client, item.Bonus7Type, item.Bonus7);
-            WriteBonusLine(output, client, item.Bonus8Type, item.Bonus8);
-            WriteBonusLine(output, client, item.Bonus9Type, item.Bonus9);
-            WriteBonusLine(output, client, item.Bonus10Type, item.Bonus10);
-            WriteBonusLine(output, client, item.ExtraBonusType, item.ExtraBonus);
+			WriteBonusLine(output, client, item.Bonus2Type, item.Bonus2);
+			WriteBonusLine(output, client, item.Bonus3Type, item.Bonus3);
+			WriteBonusLine(output, client, item.Bonus4Type, item.Bonus4);
+			WriteBonusLine(output, client, item.Bonus5Type, item.Bonus5);
+			WriteBonusLine(output, client, item.Bonus6Type, item.Bonus6);
+			WriteBonusLine(output, client, item.Bonus7Type, item.Bonus7);
+			WriteBonusLine(output, client, item.Bonus8Type, item.Bonus8);
+			WriteBonusLine(output, client, item.Bonus9Type, item.Bonus9);
+			WriteBonusLine(output, client, item.Bonus10Type, item.Bonus10);
+			WriteBonusLine(output, client, item.ExtraBonusType, item.ExtraBonus);
 
 			if (output.Count > oldCount)
 			{
@@ -1692,7 +1734,7 @@ namespace DOL.GS.PacketHandler.Client.v168
 			}
 		}
 
-        protected void WriteBonusLine(IList<string> list, GameClient client, int bonusCat, int bonusValue)
+		protected void WriteBonusLine(IList<string> list, GameClient client, int bonusCat, int bonusValue)
 		{
 			if (bonusCat != 0 && bonusValue != 0 && !SkillBase.CheckPropertyType((eProperty)bonusCat, ePropertyType.Focus))
 			{
@@ -1726,7 +1768,7 @@ namespace DOL.GS.PacketHandler.Client.v168
 						 || bonusCat == (int)eProperty.ArcaneSyphon
 						 || bonusCat == (int)eProperty.BountyPoints
 						 || bonusCat == (int)eProperty.XpPoints)
-                        ? ((bonusCat == (int)eProperty.PowerPool) ? LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteBonusLine.PowerPool") : "%")
+						? ((bonusCat == (int)eProperty.PowerPool) ? LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteBonusLine.PowerPool") : "%")
 						: LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteBonusLine.Points")
 					));
 				}
@@ -1888,11 +1930,11 @@ namespace DOL.GS.PacketHandler.Client.v168
 
 								if (minutes == 0)
 								{
-									list.Add(String.Format("Can use item every: {0} sec", seconds));
+									list.Add(string.Format("Can use item every: {0} sec", seconds));
 								}
 								else
 								{
-									list.Add(String.Format("Can use item every: {0}:{1:00} min", minutes, seconds));
+									list.Add(string.Format("Can use item every: {0}:{1:00} min", minutes, seconds));
 								}
 							}
 
@@ -1951,42 +1993,44 @@ namespace DOL.GS.PacketHandler.Client.v168
 		}
 
 		 #region v1.110+
-        /** General info @ v1.110:
-         *  - Examples can be found at http://dl.dropbox.com/u/48908369/delve.txt
-         *  - 'Expires' can be left out
-         *  - No idea what 'Fingerprint' does
-         **/
+		/** General info @ v1.110:
+		 *  - Examples can be found at http://dl.dropbox.com/u/48908369/delve.txt
+		 *  - 'Expires' can be left out
+		 *  - No idea what 'Fingerprint' does
+		 **/
 
-        public static string DelveAbility(GameClient client, int id)
-        { /* or skill */
+		public static string DelveAbility(GameClient client, int id)
+		{ /* or skill */
 
-        	Skill sk = client.Player.GetAllUsableSkills().Where(e => e.Item1.InternalID == id).OrderBy(e => e.Item1 is Ability ? 0 : 1).Select(e => e.Item1).FirstOrDefault();
-        	
-        	if(sk == null)
-        		sk = SkillBase.GetAbilityByInternalID(id);
-        	
-        	if(sk == null)
-        		sk = SkillBase.GetSpecializationByInternalID(id);
-        	
-        	MiniDelveWriter dw = new MiniDelveWriter(sk is Ability ? "Ability" : "Skill");
+			Skill sk = client.Player.GetAllUsableSkills().Where(e => e.Item1.InternalID == id).OrderBy(e => e.Item1 is Ability ? 0 : 1).Select(e => e.Item1).FirstOrDefault();
+			
+			if(sk == null)
+				sk = SkillBase.GetAbilityByInternalID(id);
+			
+			if(sk == null)
+				sk = SkillBase.GetSpecializationByInternalID(id);
+			
+			MiniDelveWriter dw = new MiniDelveWriter(sk is Ability ? "Ability" : "Skill");
 
-        	dw.AddKeyValuePair("Index", unchecked((short)id));
+			dw.AddKeyValuePair("Index", unchecked((short)id));
 
-            if (sk != null) 
-            {
-                dw.AddKeyValuePair("Name", sk.Name);
-            }
-            else
-            {
-            	dw.AddKeyValuePair("Name", "(not found)");
-            }
-            
-            return dw.ToString();
-        }
+			if (sk != null) 
+			{
+				dw.AddKeyValuePair("Name", sk.Name);
+			}
+			else
+			{
+				dw.AddKeyValuePair("Name", "(not found)");
+			}
+			
+			return dw.ToString();
+		}
 
-		public static string DelveSong(GameClient client, int id)
+		public static string DelveSong(GameClient client, Spell spell)
 		{
-			Spell spell = SkillBase.GetSpellByTooltipID((ushort) id);
+			if (spell == null)
+				return "(Song (Index \"0\") (Name \"(not found)\"))";
+
 			ISpellHandler spellHandler = ScriptMgr.CreateSpellHandler(client.Player, spell, SkillBase.GetSpellLine(GlobalSpellsLines.Reserved_Spells));
 
 			if (spellHandler == null)
@@ -2016,9 +2060,9 @@ namespace DOL.GS.PacketHandler.Client.v168
 		public static string DelveStyle(GameClient client, int id)
 		{
 			Style style = null;
-			Tuple<Skill, Skill> skill = client.Player.GetAllUsableSkills().Where(s => s.Item1.InternalID == id && s.Item1 is Style).FirstOrDefault();
+			var skill = client.Player.GetAllUsableSkills().Where(s => s.Item1.InternalID == id && s.Item1 is Style).FirstOrDefault();
 
-			if (skill == null || skill.Item1 == null)
+			if (skill == default)
 				style = SkillBase.GetStyleByInternalID(id);
 			else
 				style = skill.Item1 as Style;
@@ -2035,8 +2079,9 @@ namespace DOL.GS.PacketHandler.Client.v168
 		/// <param name="client"></param>
 		/// <param name="id"></param>
 		/// <returns></returns>
-        public static string DelveRealmAbility(GameClient client, int id)
-        {
+		public static string DelveRealmAbility(GameClient client, int id)
+		{
+			
 			Skill ra = client.Player.GetAllUsableSkills().Where(e => e.Item1.InternalID == id && e.Item1 is Ability).Select(e => e.Item1).FirstOrDefault();
 			
 			if (ra == null)
@@ -2047,21 +2092,21 @@ namespace DOL.GS.PacketHandler.Client.v168
 			MiniDelveWriter dw = new MiniDelveWriter("RealmAbility");
 			dw.AddKeyValuePair("Index",  unchecked((short)id));
 			
-            if (ra is RealmAbility)
-            {
-           		((RealmAbility)ra).AddDelve(ref dw);
-            }
-            else if (ra != null)
-            {
-                dw.AddKeyValuePair("Name", ra.Name);
-            }
-            else
-            {
-           		dw.AddKeyValuePair("Name", "(not found)");
-            }
-            
-            return dw.ToString();
-        }
-        #endregion
-    }
+			if (ra is RealmAbility)
+			{
+				((RealmAbility)ra).AddDelve(ref dw);
+			}
+			else if (ra != null)
+			{
+				dw.AddKeyValuePair("Name", ra.Name);
+			}
+			else
+			{
+				dw.AddKeyValuePair("Name", "(not found)");
+			}
+			
+			return dw.ToString();
+		}
+		#endregion
+	}
 }

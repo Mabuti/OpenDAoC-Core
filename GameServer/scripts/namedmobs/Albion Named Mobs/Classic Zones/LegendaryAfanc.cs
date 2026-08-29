@@ -1,10 +1,10 @@
 ﻿using System;
-using DOL.AI.Brain;
-using DOL.Database;
-using DOL.GS;
-using DOL.Events;
-using DOL.GS.PacketHandler;
 using System.Collections.Generic;
+using DOL.AI.Brain;
+using DOL.Events;
+using DOL.GS;
+using DOL.GS.PacketHandler;
+using DOL.GS.PlayerClass;
 
 namespace DOL.GS
 {
@@ -65,7 +65,7 @@ namespace DOL.GS
 			base.AddToWorld();
 			return true;
 		}
-		public override void Die(GameObject killer)
+		public override void ProcessDeath(GameObject killer)
 		{
 			foreach (GameNPC npc in GetNPCsInRadius(5000))
 			{
@@ -75,7 +75,7 @@ namespace DOL.GS
 						npc.Die(npc);
 				}
 			}
-			base.Die(killer);
+			base.ProcessDeath(killer);
 		}
 	}
 }
@@ -157,7 +157,7 @@ namespace DOL.AI.Brain
 					if (Target != null && Target.IsAlive)
                     {					
 						Target.MoveTo(Body.CurrentRegionID, 451486, 393503, 2754, 2390);
-						if(Target.CharacterClass.ID != (int)eCharacterClass.Necromancer)
+						if(Target.CharacterClass is not ClassDisciple)
                         {
 							Target.TakeDamage(Target, eDamageType.Falling, Target.MaxHealth / 5, 0);
 							Target.Out.SendMessage("You take falling damage!", eChatType.CT_Important, eChatLoc.CL_ChatWindow);

@@ -1,22 +1,18 @@
 using System;
-using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
 using DOL.Database;
-using DOL.GS.Utils;
 using DOL.Language;
+using DOL.Logging;
 
 namespace DOL.GS.PacketHandler.Client.v168
 {
     [PacketHandlerAttribute(PacketHandlerType.TCP, eClientPackets.PositionUpdate, "Handles player position updates", eClientStatus.PlayerInGame)]
-    public class PlayerPositionUpdateHandler : IPacketHandler
+    public class PlayerPositionUpdateHandler : PacketHandler
     {
-        /// <summary>
-        /// Defines a logger for this class.
-        /// </summary>
-        private static readonly Logging.Logger log = Logging.LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
+        private static readonly Logger log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
 
-        public void HandlePacket(GameClient client, GSPacketIn packet)
+        protected override void HandlePacketInternal(GameClient client, GSPacketIn packet)
         {
             //Tiv: in very rare cases client send 0xA9 packet before sending S<=C 0xE8 player world initialize
             if (client.Player.ObjectState is not GameObject.eObjectState.Active || client.ClientState is not GameClient.eClientState.Playing)
@@ -25,11 +21,10 @@ namespace DOL.GS.PacketHandler.Client.v168
             if (!client.Player.IsPositionUpdateFromPacketAllowed())
                 return;
 
-            HandlePacketInternal(client, packet);
-            client.Player.OnPositionUpdateFromPacket();
+            Handle(client, packet);
         }
 
-        private static void HandlePacketInternal(GameClient client, GSPacketIn packet)
+        private static void Handle(GameClient client, GSPacketIn packet)
         {
             // In very rare cases client send 0xA9 packet before sending S<=C 0xE8 player world initialize
             if (client.Player.ObjectState is not GameObject.eObjectState.Active || client.ClientState is not GameClient.eClientState.Playing and not GameClient.eClientState.Linkdead)
@@ -85,7 +80,7 @@ namespace DOL.GS.PacketHandler.Client.v168
                 packet.Skip(1); // Health.
                 // two trailing bytes, no data, +2 more for 1.127+.
 
-                if ((client.Player.IsMezzed || client.Player.IsStunned) && !client.Player.effectListComponent.ContainsEffectForEffectType(eEffect.SpeedOfSound))
+                if (client.Player.IsCrowdControlled && !client.Player.effectListComponent.ContainsEffectForEffectType(eEffect.SpeedOfSound))
                     client.Player.CurrentSpeed = 0;
                 else
                     client.Player.CurrentSpeed = (short) speed;
@@ -137,63 +132,13 @@ namespace DOL.GS.PacketHandler.Client.v168
                     client.Out.SendMessage(LanguageMgr.GetTranslation(client.Account.Language, "PlayerPositionUpdateHandler.Entered", description), eChatType.CT_System, eChatLoc.CL_SystemWindow);
                     client.Out.SendMessage(screenDescription, eChatType.CT_ScreenCenterSmaller, eChatLoc.CL_SystemWindow);
                     client.Player.LastPositionUpdateZone = newZone;
-
-                    if (client.Player.GMStealthed)
-                        client.Player.Stealth(true);
                 }
 
                 client.Player.LastPositionUpdatePacketReceivedTime = GameLoop.GameLoopTime;
-                client.Player.X = (int) x;
-                client.Player.Y = (int) y;
-                client.Player.Z = (int) z;
                 client.Player.Heading = heading;
+                client.Player.OnPositionUpdateFromPacket(new(x, y, z));
 
-                // Area.
-                if (client.Player.CurrentRegion.Time > client.Player.AreaUpdateTick)
-                {
-                    IList<IArea> oldAreas = client.Player.CurrentAreas;
-
-                    // Because we may be in an instance we need to do the area check from the current region
-                    // rather than relying on the zone which is in the skinned region.  - Tolakram
-
-                    IList<IArea> newAreas = client.Player.CurrentRegion.GetAreasOfZone(newZone, client.Player);
-
-                    // Check for left areas
-                    if (oldAreas != null)
-                    {
-                        foreach (IArea area in oldAreas)
-                        {
-                            if (!newAreas.Contains(area))
-                            {
-                                area.OnPlayerLeave(client.Player);
-
-                                // Check if leaving Border Keep areas so we can check RealmTimer.
-                                // This is very ugly.
-                                if (area is AbstractArea borderKeep &&
-                                    (borderKeep.Description.Equals("Castle Sauvage") ||
-                                    borderKeep.Description.Equals("Snowdonia Fortress") ||
-                                    borderKeep.Description.Equals("Svasud Faste") ||
-                                    borderKeep.Description.Equals("Vindsaul Faste") ||
-                                    borderKeep.Description.Equals("Druim Ligen") ||
-                                    borderKeep.Description.Equals("Druim Cain")))
-                                {
-                                    RealmTimer.CheckRealmTimer(client.Player);
-                                }
-                            }
-                        }
-                    }
-
-                    // Check for entered areas
-                    foreach (IArea area in newAreas)
-                    {
-                        if (oldAreas == null || !oldAreas.Contains(area))
-                            area.OnPlayerEnter(client.Player);
-                    }
-
-                    // set current areas to new one...
-                    client.Player.CurrentAreas = newAreas;
-                    client.Player.AreaUpdateTick = client.Player.CurrentRegion.Time + 2000; // update every 2 seconds
-                }
+                client.Player.CheckAreas(newZone);
 
                 // Fall damage.
                 if (GameServer.ServerRules.CanTakeFallDamage(client.Player) && !client.Player.IsSwimming)
@@ -242,7 +187,7 @@ namespace DOL.GS.PacketHandler.Client.v168
                 if ((speedData & 0x200) != 0)
                     speed = -speed;
 
-                if ((client.Player.IsMezzed || client.Player.IsStunned) && !client.Player.effectListComponent.ContainsEffectForEffectType(eEffect.SpeedOfSound))
+                if (client.Player.IsCrowdControlled && !client.Player.effectListComponent.ContainsEffectForEffectType(eEffect.SpeedOfSound))
                     // Nidel: updating client.Player.CurrentSpeed instead of speed
                     client.Player.CurrentSpeed = 0;
                 else
@@ -323,9 +268,6 @@ namespace DOL.GS.PacketHandler.Client.v168
                     client.Out.SendMessage(LanguageMgr.GetTranslation(client.Account.Language, "PlayerPositionUpdateHandler.Entered", description), eChatType.CT_System, eChatLoc.CL_SystemWindow);
                     client.Out.SendMessage(screenDescription, eChatType.CT_ScreenCenterSmaller, eChatLoc.CL_SystemWindow);
                     client.Player.LastPositionUpdateZone = newZone;
-
-                    if (client.Player.GMStealthed)
-                        client.Player.Stealth(true);
                 }
 
                 client.Player.LastPositionUpdatePacketReceivedTime = GameLoop.GameLoopTime;
@@ -334,59 +276,13 @@ namespace DOL.GS.PacketHandler.Client.v168
                 ProcessActionFlags(client.Player, (ActionFlags) packet.ReadByte());
 
                 client.Player.Heading = headingflag;
-                client.Player.X = realX;
-                client.Player.Y = realY;
-                client.Player.Z = realZ;
+                client.Player.OnPositionUpdateFromPacket(new(realX, realY, realZ));
 
                 // update client zone information for waterlevel and diving
                 if (zoneChange)
                     client.Out.SendPlayerPositionAndObjectID();
 
-                // Begin ---------- New Area System -----------
-                if (client.Player.CurrentRegion.Time > client.Player.AreaUpdateTick) // check if update is needed
-                {
-                    IList<IArea> oldAreas = client.Player.CurrentAreas;
-
-                    // Because we may be in an instance we need to do the area check from the current region
-                    // rather than relying on the zone which is in the skinned region.  - Tolakram
-
-                    IList<IArea> newAreas = client.Player.CurrentRegion.GetAreasOfZone(newZone, client.Player);
-
-                    // Check for left areas
-                    if (oldAreas != null)
-                    {
-                        foreach (IArea area in oldAreas)
-                        {
-                            if (!newAreas.Contains(area))
-                            {
-                                area.OnPlayerLeave(client.Player);
-
-                                //Check if leaving Border Keep areas so we can check RealmTimer
-                                if (area is AbstractArea checkrvrarea && (checkrvrarea.Description.Equals("Castle Sauvage") ||
-                                    checkrvrarea.Description.Equals("Snowdonia Fortress") ||
-                                    checkrvrarea.Description.Equals("Svasud Faste") ||
-                                    checkrvrarea.Description.Equals("Vindsaul Faste") ||
-                                    checkrvrarea.Description.Equals("Druim Ligen") ||
-                                    checkrvrarea.Description.Equals("Druim Cain")))
-                                {
-                                    RealmTimer.CheckRealmTimer(client.Player);
-                                }
-                            }
-                        }
-                    }
-
-                    // Check for entered areas
-                    foreach (IArea area in newAreas)
-                    {
-                        if (oldAreas == null || !oldAreas.Contains(area))
-                            area.OnPlayerEnter(client.Player);
-                    }
-
-                    // set current areas to new one...
-                    client.Player.CurrentAreas = newAreas;
-                    client.Player.AreaUpdateTick = client.Player.CurrentRegion.Time + 750; // update every .75 seconds
-                }
-                // End ---------- New Area System -----------
+                client.Player.CheckAreas(newZone);
 
                 int status = (speedData & 0x1FF ^ speedData) >> 8;
                 int fly = (flyingflag & 0x1FF ^ flyingflag) >> 8;
@@ -543,120 +439,27 @@ namespace DOL.GS.PacketHandler.Client.v168
                     {
                         if (otherPlayer.Client.Version >= GameClient.eClientVersion.Version1127)
                         {
-                            outPak1127 ??= CreateOutPak1127();
+                            outPak1127 ??= CreateOutPak1127(client, player, stateFlags, steedSeatPosition, heading, actionFlags, healthByte);
                             otherPlayer.Out.SendUDP(outPak1127);
                         }
                         else if (otherPlayer.Client.Version >= GameClient.eClientVersion.Version1124)
                         {
-                            outPak1124 ??= CreateOutPak1124();
+                            outPak1124 ??= CreateOutPak1124(client, player, stateFlags, steedSeatPosition, heading, actionFlags, healthByte);
                             otherPlayer.Out.SendUDP(outPak1124);
                         }
                         else if (otherPlayer.Client.Version >= GameClient.eClientVersion.Version1112)
                         {
-                            outPak1112 ??= CreateOutPak1112();
+                            outPak1112 ??= CreateOutPak1112(client, player, steedSeatPosition, heading, actionFlags, healthByte);
                             otherPlayer.Out.SendUDP(outPak1112);
                         }
                         else
                         {
-                            outPak190 ??= CreateOutPak190();
+                            outPak190 ??= CreateOutPak190(client, player, steedSeatPosition, heading, actionFlags, healthByte);
                             otherPlayer.Out.SendUDP(outPak190);
                         }
                     }
                     else
                         otherPlayer.Out.SendObjectDelete(player); // Remove the stealthed player from view.
-                }
-
-                GSUDPPacketOut CreateOutPak1127()
-                {
-                    var outPak = PooledObjectFactory.GetForTick<GSUDPPacketOut>().Init(AbstractPacketLib.GetPacketCode(eServerPackets.PlayerPosition));
-                    outPak.WriteFloatLowEndian(player.X);
-                    outPak.WriteFloatLowEndian(player.Y);
-                    outPak.WriteFloatLowEndian(player.Z);
-                    outPak.WriteFloatLowEndian(player.CurrentSpeed);
-                    outPak.WriteFloatLowEndian(player.FallSpeed);
-                    outPak.WriteShort(client.SessionID);
-                    outPak.WriteShort(player.ObjectID);
-                    outPak.WriteShort(player.CurrentZone.ID);
-                    outPak.WriteByte((byte) stateFlags);
-                    outPak.WriteByte(0);
-                    outPak.WriteShort(steedSeatPosition); // Fall damage flag coming in, steed seat position going out.
-                    outPak.WriteShort(heading);
-                    outPak.WriteByte((byte) actionFlags);
-                    outPak.WriteByte((byte) (player.RPFlag ? 1 : 0));
-                    outPak.WriteByte(0);
-                    outPak.WriteByte(healthByte);
-                    outPak.WriteByte(player.ManaPercent);
-                    outPak.WriteByte(player.EndurancePercent);
-                    outPak.WriteShort(0);
-                    return outPak;
-                }
-
-                GSUDPPacketOut CreateOutPak1124()
-                {
-                    var outPak = PooledObjectFactory.GetForTick<GSUDPPacketOut>().Init(AbstractPacketLib.GetPacketCode(eServerPackets.PlayerPosition));
-                    outPak.WriteFloatLowEndian(player.X);
-                    outPak.WriteFloatLowEndian(player.Y);
-                    outPak.WriteFloatLowEndian(player.Z);
-                    outPak.WriteFloatLowEndian(player.CurrentSpeed);
-                    outPak.WriteFloatLowEndian(player.FallSpeed);
-                    outPak.WriteShort(client.SessionID);
-                    outPak.WriteShort(player.CurrentZone.ID);
-                    outPak.WriteByte((byte) stateFlags);
-                    outPak.WriteByte(0);
-                    outPak.WriteShort(steedSeatPosition); // Fall damage flag coming in, steed seat position going out.
-                    outPak.WriteShort(heading);
-                    outPak.WriteByte((byte) actionFlags);
-                    outPak.WriteByte((byte) (player.RPFlag ? 1 : 0));
-                    outPak.WriteByte(0);
-                    outPak.WriteByte(healthByte);
-                    outPak.WriteByte(player.ManaPercent);
-                    outPak.WriteByte(player.EndurancePercent);
-                    return outPak;
-                }
-
-                GSUDPPacketOut CreateOutPak1112()
-                {
-                    var outPak = PooledObjectFactory.GetForTick<GSUDPPacketOut>().Init(AbstractPacketLib.GetPacketCode(eServerPackets.PlayerPosition));
-                    outPak.WriteShort(client.SessionID);
-                    outPak.WriteShort((ushort) (player.CurrentSpeed & 0x1FF));
-                    outPak.WriteShort((ushort) player.Z);
-                    ushort xOffset = (ushort) (player.X - (player.CurrentZone?.XOffset ?? 0));
-                    outPak.WriteShort(xOffset);
-                    ushort yOffset = (ushort) (player.Y - (player.CurrentZone?.YOffset ?? 0));
-                    outPak.WriteShort(yOffset);
-                    outPak.WriteShort(player.CurrentZone.ID);
-                    outPak.WriteShort(heading);
-                    outPak.WriteShort(steedSeatPosition);
-                    outPak.WriteByte((byte) actionFlags);
-                    outPak.WriteByte(healthByte);
-                    outPak.WriteByte(player.ManaPercent);
-                    outPak.WriteByte(player.EndurancePercent);
-                    outPak.WriteByte((byte) (player.RPFlag ? 1 : 0));
-                    outPak.WriteByte(0);
-                    return outPak;
-                }
-
-                GSUDPPacketOut CreateOutPak190()
-                {
-                    var outPak = PooledObjectFactory.GetForTick<GSUDPPacketOut>().Init(AbstractPacketLib.GetPacketCode(eServerPackets.PlayerPosition));
-                    outPak.WriteShort(client.SessionID);
-                    outPak.WriteShort((ushort) (player.CurrentSpeed & 0x1FF));
-                    outPak.WriteShort((ushort) player.Z);
-                    ushort xOffset = (ushort) (player.X - (player.CurrentZone?.XOffset ?? 0));
-                    outPak.WriteShort(xOffset);
-                    ushort yOffset = (ushort) (player.Y - (player.CurrentZone?.YOffset ?? 0));
-                    outPak.WriteShort(yOffset);
-                    outPak.WriteShort(player.CurrentZone.ID);
-                    outPak.WriteShort(heading);
-                    outPak.WriteShort(steedSeatPosition);
-                    outPak.WriteByte((byte) actionFlags);
-                    outPak.WriteByte(healthByte);
-                    outPak.WriteByte(player.ManaPercent);
-                    outPak.WriteByte(player.EndurancePercent);
-                    outPak.FillString(player.CharacterClass.Name, 32);
-                    outPak.WriteByte((byte) (player.RPFlag ? 1 : 0));
-                    outPak.WriteByte(0);
-                    return outPak;
                 }
             }
 
@@ -882,6 +685,99 @@ namespace DOL.GS.PacketHandler.Client.v168
                 actionFlags &= ~ActionFlags.PET_IN_VIEW_IN__DIVING_OUT;
 
             return actionFlags;
+        }
+
+        private static GSUDPPacketOut CreateOutPak1127(GameClient client, GamePlayer player, StateFlags stateFlags, ushort steedSeatPosition, ushort heading, ActionFlags actionFlags, byte healthByte)
+        {
+            var outPak = PooledObjectFactory.GetForTick<GSUDPPacketOut>().Init(AbstractPacketLib.GetPacketCode(eServerPackets.PlayerPosition));
+            outPak.WriteFloatLowEndian(player.X);
+            outPak.WriteFloatLowEndian(player.Y);
+            outPak.WriteFloatLowEndian(player.Z);
+            outPak.WriteFloatLowEndian(player.CurrentSpeed);
+            outPak.WriteFloatLowEndian(player.FallSpeed);
+            outPak.WriteShort(client.SessionID);
+            outPak.WriteShort(player.ObjectID);
+            outPak.WriteShort(player.CurrentZone.ID);
+            outPak.WriteByte((byte) stateFlags);
+            outPak.WriteByte(0);
+            outPak.WriteShort(steedSeatPosition); // Fall damage flag coming in, steed seat position going out.
+            outPak.WriteShort(heading);
+            outPak.WriteByte((byte) actionFlags);
+            outPak.WriteByte((byte) (player.RPFlag ? 1 : 0));
+            outPak.WriteByte(0);
+            outPak.WriteByte(healthByte);
+            outPak.WriteByte(player.ManaPercent);
+            outPak.WriteByte(player.EndurancePercent);
+            outPak.WriteShort(0);
+            return outPak;
+        }
+
+        private static GSUDPPacketOut CreateOutPak1124(GameClient client, GamePlayer player, StateFlags stateFlags, ushort steedSeatPosition, ushort heading, ActionFlags actionFlags, byte healthByte)
+        {
+            var outPak = PooledObjectFactory.GetForTick<GSUDPPacketOut>().Init(AbstractPacketLib.GetPacketCode(eServerPackets.PlayerPosition));
+            outPak.WriteFloatLowEndian(player.X);
+            outPak.WriteFloatLowEndian(player.Y);
+            outPak.WriteFloatLowEndian(player.Z);
+            outPak.WriteFloatLowEndian(player.CurrentSpeed);
+            outPak.WriteFloatLowEndian(player.FallSpeed);
+            outPak.WriteShort(client.SessionID);
+            outPak.WriteShort(player.CurrentZone.ID);
+            outPak.WriteByte((byte) stateFlags);
+            outPak.WriteByte(0);
+            outPak.WriteShort(steedSeatPosition); // Fall damage flag coming in, steed seat position going out.
+            outPak.WriteShort(heading);
+            outPak.WriteByte((byte) actionFlags);
+            outPak.WriteByte((byte) (player.RPFlag ? 1 : 0));
+            outPak.WriteByte(0);
+            outPak.WriteByte(healthByte);
+            outPak.WriteByte(player.ManaPercent);
+            outPak.WriteByte(player.EndurancePercent);
+            return outPak;
+        }
+
+        private static GSUDPPacketOut CreateOutPak1112(GameClient client, GamePlayer player, ushort steedSeatPosition, ushort heading, ActionFlags actionFlags, byte healthByte)
+        {
+            var outPak = PooledObjectFactory.GetForTick<GSUDPPacketOut>().Init(AbstractPacketLib.GetPacketCode(eServerPackets.PlayerPosition));
+            outPak.WriteShort(client.SessionID);
+            outPak.WriteShort((ushort) (player.CurrentSpeed & 0x1FF));
+            outPak.WriteShort((ushort) player.Z);
+            ushort xOffset = (ushort) (player.X - (player.CurrentZone?.XOffset ?? 0));
+            outPak.WriteShort(xOffset);
+            ushort yOffset = (ushort) (player.Y - (player.CurrentZone?.YOffset ?? 0));
+            outPak.WriteShort(yOffset);
+            outPak.WriteShort(player.CurrentZone.ID);
+            outPak.WriteShort(heading);
+            outPak.WriteShort(steedSeatPosition);
+            outPak.WriteByte((byte) actionFlags);
+            outPak.WriteByte(healthByte);
+            outPak.WriteByte(player.ManaPercent);
+            outPak.WriteByte(player.EndurancePercent);
+            outPak.WriteByte((byte) (player.RPFlag ? 1 : 0));
+            outPak.WriteByte(0);
+            return outPak;
+        }
+
+        private static GSUDPPacketOut CreateOutPak190(GameClient client, GamePlayer player, ushort steedSeatPosition, ushort heading, ActionFlags actionFlags, byte healthByte)
+        {
+            var outPak = PooledObjectFactory.GetForTick<GSUDPPacketOut>().Init(AbstractPacketLib.GetPacketCode(eServerPackets.PlayerPosition));
+            outPak.WriteShort(client.SessionID);
+            outPak.WriteShort((ushort) (player.CurrentSpeed & 0x1FF));
+            outPak.WriteShort((ushort) player.Z);
+            ushort xOffset = (ushort) (player.X - (player.CurrentZone?.XOffset ?? 0));
+            outPak.WriteShort(xOffset);
+            ushort yOffset = (ushort) (player.Y - (player.CurrentZone?.YOffset ?? 0));
+            outPak.WriteShort(yOffset);
+            outPak.WriteShort(player.CurrentZone.ID);
+            outPak.WriteShort(heading);
+            outPak.WriteShort(steedSeatPosition);
+            outPak.WriteByte((byte) actionFlags);
+            outPak.WriteByte(healthByte);
+            outPak.WriteByte(player.ManaPercent);
+            outPak.WriteByte(player.EndurancePercent);
+            outPak.FillString(player.CharacterClass.Name, 32);
+            outPak.WriteByte((byte) (player.RPFlag ? 1 : 0));
+            outPak.WriteByte(0);
+            return outPak;
         }
 
         [Flags]

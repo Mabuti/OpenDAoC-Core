@@ -75,11 +75,11 @@ namespace DOL.AI.Brain
 			AggroRange = 600;
 			ThinkInterval = 1500;
 		}
-		public static bool IsPulled = false;
-		public static bool IsBig = false;
-		public static bool IsSmall = false;
-		public static bool IsChangingSize = false;
-		public static bool IsInCombat = false;
+		public bool IsPulled = false;
+		public bool IsBig = false;
+		public bool IsSmall = false;
+		public bool IsChangingSize = false;
+		public bool IsInCombat = false;
 		public int ChangeSizeToBig(ECSGameTimer timer)
 		{
 			if (HasAggro && Body.IsAlive)
@@ -184,7 +184,6 @@ namespace DOL.AI.Brain
 					spell.Uninterruptible = true;
 					spell.MoveCast = true;
 					m_Boss_SC_Debuff = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Boss_SC_Debuff);
 				}
 				return m_Boss_SC_Debuff;
 			}
@@ -210,12 +209,11 @@ namespace DOL.AI.Brain
 					spell.Range = 0;
 					spell.Value = 50;
 					spell.SpellID = 11838;
-					spell.Target = "Self";
+					spell.Target = eSpellTarget.SELF.ToString();
 					spell.Type = eSpellType.CombatSpeedBuff.ToString();
 					spell.Uninterruptible = true;
 					spell.MoveCast = true;
 					m_Boss_Haste_Buff = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Boss_Haste_Buff);
 				}
 				return m_Boss_Haste_Buff;
 			}

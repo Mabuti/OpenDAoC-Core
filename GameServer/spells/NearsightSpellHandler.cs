@@ -11,13 +11,13 @@ namespace DOL.GS.Spells
 	[SpellHandler(eSpellType.Nearsight)]
 	public class NearsightSpellHandler : ImmunityEffectSpellHandler
 	{
-		public override string ShortDescription => $"Reduces the target's attack and spell casting range by {Spell.Value}%.";
+		public override string ShortDescription => $"Reduces the target's attack and spell casting range by {Spell.Value}%{GetFrequencyAndDurationSuffix()}.";
 
 		public NearsightSpellHandler(GameLiving caster, Spell spell, SpellLine spellLine) : base(caster, spell, spellLine) { }
 
         public override ECSGameSpellEffect CreateECSEffect(in ECSGameEffectInitParams initParams)
         {
-            return ECSGameEffectFactory.Create(initParams, static (in ECSGameEffectInitParams i) => new NearsightECSGameEffect(i));
+            return ECSGameEffectFactory.Create(initParams, static (in i) => new NearsightECSGameEffect(i));
         }
 
         public override void ApplyEffectOnTarget(GameLiving target)
@@ -168,7 +168,7 @@ namespace DOL.GS.Spells
 	[SpellHandler(eSpellType.NearsightReduction)]
 	public class NearsightReductionSpellHandler : SpellHandler
 	{
-		public override string ShortDescription => $"Nearsight spells cast upon the caster's group are reduced in effectiveness by {Spell.Value}%, or outright resisted.";
+		public override string ShortDescription => $"Nearsight spells cast upon the caster's group are reduced in effectiveness by {Spell.Value}%, or outright resisted{GetFrequencyAndDurationSuffix()}.";
 
 		public NearsightReductionSpellHandler(GameLiving caster, Spell spell, SpellLine spellLine) : base(caster, spell, spellLine) { }
 

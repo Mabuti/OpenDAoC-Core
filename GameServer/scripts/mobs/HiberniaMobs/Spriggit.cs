@@ -37,13 +37,6 @@ namespace DOL.AI.Brain
 			ThinkInterval = 1500;
 		}
 		private bool mobHasAggro = false;
-		public void BroadcastMessage(String message)
-		{
-			foreach (GamePlayer player in Body.GetPlayersInRadius(WorldMgr.VISIBILITY_DISTANCE))
-			{
-				player.Out.SendMessage(message, eChatType.CT_Broadcast, eChatLoc.CL_ChatWindow);
-			}
-		}
 		public override void Think()
 		{
 			if(!CheckProximityAggro())
@@ -54,7 +47,7 @@ namespace DOL.AI.Brain
 			{
 				if(!mobHasAggro)
                 {
-					BroadcastMessage(String.Format("Spriggit crackles as he attacks {0}!",Body.TargetObject.Name));
+					Message.MessageToArea(Body, String.Format("Spriggit crackles as he attacks {0}!",Body.TargetObject.Name), eChatType.CT_Broadcast, eChatLoc.CL_ChatWindow, WorldMgr.VISIBILITY_DISTANCE);
 					mobHasAggro = true;
                 }
 				GameLiving target = Body.TargetObject as GameLiving;
@@ -93,11 +86,10 @@ namespace DOL.AI.Brain
 					spell.Name = "Frost Blast";
 					spell.Range = 1500;
 					spell.SpellID = 11941;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.DirectDamageNoVariance.ToString();
 					spell.Uninterruptible = true;
 					m_SpriggitDD = new Spell(spell, 20);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_SpriggitDD);
 				}
 				return m_SpriggitDD;
 			}
@@ -123,11 +115,10 @@ namespace DOL.AI.Brain
 					spell.Name = "Root";
 					spell.Range = 1500;
 					spell.SpellID = 11942;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.SpeedDecrease.ToString();
 					spell.Uninterruptible = true;
 					m_SpriggitRoot = new Spell(spell, 20);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_SpriggitRoot);
 				}
 				return m_SpriggitRoot;
 			}

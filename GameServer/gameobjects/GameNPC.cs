@@ -12,12 +12,14 @@ using DOL.AI.Brain;
 using DOL.Database;
 using DOL.Events;
 using DOL.GS.Housing;
+using DOL.GS.Keeps;
 using DOL.GS.Movement;
 using DOL.GS.PacketHandler;
 using DOL.GS.Quests;
 using DOL.GS.ServerProperties;
 using DOL.GS.Styles;
 using DOL.Language;
+using DOL.Logging;
 
 namespace DOL.GS
 {
@@ -27,7 +29,7 @@ namespace DOL.GS
 	/// </summary>
 	public class GameNPC : GameLiving, ITranslatableObject, IPooledList<GameNPC>
 	{
-		public static readonly Logging.Logger log = Logging.LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
+		public static readonly Logger log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
 		private static ConcurrentDictionary<Type, Func<AbstractQuest>> _abstractQuestConstructorCache = new();
 
 		private const int VISIBLE_TO_PLAYER_SPAN = 60000;
@@ -670,22 +672,14 @@ namespace DOL.GS
 			}
 		}
 
-
-		public override bool IsUnderwater
-		{
-			get { return (m_flags & eFlags.SWIMMING) == eFlags.SWIMMING || base.IsUnderwater; }
-		}
-
+		public override bool IsUnderwater => (m_flags & eFlags.SWIMMING) is eFlags.SWIMMING || base.IsUnderwater;
 
 		/// <summary>
 		/// Shows wether any player sees that mob
 		/// we dont need to calculate things like AI if mob is in no way
 		/// visible to at least one player
 		/// </summary>
-		public virtual bool IsVisibleToPlayers
-		{
-			get { return GameLoop.GameLoopTime - m_lastVisibleToPlayerTick < VISIBLE_TO_PLAYER_SPAN; }
-		}
+		public virtual bool IsVisibleToPlayers => GameLoop.GameLoopTime - m_lastVisibleToPlayerTick < VISIBLE_TO_PLAYER_SPAN;
 
 		/// <summary>
 		/// Gets or sets the spawnposition of this npc
@@ -732,16 +726,6 @@ namespace DOL.GS
 			get { return m_spawnHeading; }
 			set { m_spawnHeading = value; }
 		}
-
-		// Delegate to the movement component for position interpolation and caching.
-		public override int X => movementComponent.X;
-		public override int Y => movementComponent.Y;
-		public override int Z => movementComponent.Z;
-
-		// Only meant to be used by the movement component.
-		public int RealX => m_x;
-		public int RealY => m_y;
-		public int RealZ => m_z;
 
 		/// <summary>
 		/// The stealth state of this NPC
@@ -798,31 +782,29 @@ namespace DOL.GS
 		public virtual int StickMinimumRange => (int) (MeleeAttackRange * 0.375);
 		public virtual int StickMaximumRange => 5000;
 
-		public long LastVisibleToPlayersTickCount => m_lastVisibleToPlayerTick;
-
 		public ref Vector3 Destination => ref movementComponent.Destination;
 		public GameObject FollowTarget => movementComponent.FollowTarget;
 		public string PathID
 		{
-			get => movementComponent.PathID;
-			set => movementComponent.PathID = value;
+			get => movementComponent.PathId;
+			set => movementComponent.PathId = value;
 		}
-		public PathPoint CurrentWaypoint
+		public PathPoint CurrentPathPoint
 		{
-			get => movementComponent.CurrentWaypoint;
-			set => movementComponent.CurrentWaypoint = value;
+			get => movementComponent.CurrentPathPoint;
+			set => movementComponent.CurrentPathPoint = value;
 		}
-		public bool IsReturningToSpawnPoint => movementComponent.IsReturningToSpawnPoint;
 		public int RoamingRange
 		{
 			get => movementComponent.RoamingRange;
 			set => movementComponent.RoamingRange = value;
 		}
 		public bool IsMovingOnPath => movementComponent.IsMovingOnPath;
-		public bool IsNearSpawn => movementComponent.IsNearSpawn;
+		public bool IsAtSpawn => IsWithinRadius(SpawnPoint, 0);
 		public bool IsDestinationValid => movementComponent.IsDestinationValid;
 		public bool IsAtDestination => movementComponent.IsAtDestination;
 		public bool CanRoam => movementComponent.CanRoam;
+		public bool CanMoveOnPath => movementComponent.CanMoveOnPath;
 
 		public void WalkTo(Point3D target, short speed)
 		{
@@ -849,7 +831,7 @@ namespace DOL.GS
 			movementComponent.StopMoving();
 		}
 
-		public virtual void Follow(GameObject target, int minDistance, int maxDistance)
+		public virtual void Follow(GameObject target, long minDistance, long maxDistance)
 		{
 			movementComponent.Follow(target as GameLiving, minDistance, maxDistance);
 		}
@@ -872,11 +854,6 @@ namespace DOL.GS
 		public virtual void ReturnToSpawnPoint(short speed)
 		{
 			movementComponent.ReturnToSpawnPoint(speed);
-		}
-
-		public virtual void CancelReturnToSpawnPoint()
-		{
-			movementComponent.CancelReturnToSpawnPoint();
 		}
 
 		public virtual void Roam(short speed)
@@ -909,6 +886,19 @@ namespace DOL.GS
 		public virtual void TurnTo(GameObject target, int duration = 0)
 		{
 			movementComponent.TurnTo(target, duration);
+		}
+
+		public bool IsAllowedToFollow(GameObject target)
+		{
+			if (MaxSpeedBase <= 0)
+				return false;
+
+			if (this is not GuardArcher and not GuardCaster)
+				return true;
+
+			return target is GameLiving livingTarget &&
+				livingTarget.ActiveWeaponSlot is not eActiveWeaponSlot.Distance &&
+				livingTarget.IsWithinRadius(this, livingTarget.attackComponent.AttackRange);
 		}
 
 		#endregion
@@ -1163,7 +1153,7 @@ namespace DOL.GS
 			mob.Speed = MaxSpeedBase;
 			mob.Region = CurrentRegionID;
 			mob.Realm = (byte)Realm;
-			mob.Model = Model;
+			mob.Model = m_model;
 			mob.Size = Size;
 			mob.Level = Level;
 
@@ -1178,7 +1168,7 @@ namespace DOL.GS
 			mob.Charisma = Charisma;
 
 			mob.ClassType = GetType().ToString();
-			mob.Flags = (uint) Flags;
+			mob.Flags = (uint) m_flags;
 			mob.Speed = MaxSpeedBase;
 			mob.RespawnInterval = m_respawnInterval / 1000;
 			mob.HouseNumber = HouseNumber;
@@ -1519,13 +1509,13 @@ namespace DOL.GS
 		/// <summary>
 		/// Holds all the quests this npc can give to players
 		/// </summary>
-		protected readonly ArrayList m_questListToGive = new ArrayList();
+		protected readonly List<AbstractQuest> m_questListToGive = new();
 		protected readonly Lock _questListToGiveLock = new();
 
 		/// <summary>
 		/// Gets the questlist of this player
 		/// </summary>
-		public IList QuestListToGive
+		public List<AbstractQuest> QuestListToGive
 		{
 			get { return m_questListToGive; }
 		}
@@ -1546,7 +1536,7 @@ namespace DOL.GS
 
 				try
 				{
-					newQuest = _abstractQuestConstructorCache.GetOrAdd(questType, (key) => CompiledConstructorFactory.CompileConstructor(key, []) as Func<AbstractQuest>)();
+					newQuest = _abstractQuestConstructorCache.GetOrAdd(questType, key => CompiledConstructorFactory.CompileConstructor(key, []) as Func<AbstractQuest>)();
 				}
 				catch (Exception e)
 				{
@@ -1691,38 +1681,7 @@ namespace DOL.GS
 		/// <returns>true if this npc is the last step of one quest, false otherwise</returns>
 		public bool CanFinishOneQuest(GamePlayer player)
 		{
-			foreach (var pair in player.QuestList)
-			{
-				AbstractQuest quest = pair.Key;
-
-				// Handle Data Quest here.
-				if (quest is DataQuest dataQuest && dataQuest.TargetName == Name && (dataQuest.TargetRegion == 0 || dataQuest.TargetRegion == CurrentRegionID))
-				{
-					switch (dataQuest.StepType)
-					{
-						case DataQuest.eStepType.DeliverFinish:
-						case DataQuest.eStepType.InteractFinish:
-						case DataQuest.eStepType.KillFinish:
-						case DataQuest.eStepType.WhisperFinish:
-						case DataQuest.eStepType.CollectFinish:
-							return true;
-					}
-				}
-
-				// Handle Reward Quest here.
-				if (quest is RewardQuest rewardQuest && rewardQuest.QuestGiver == this)
-				{
-					bool done = true;
-
-					foreach (RewardQuest.QuestGoal goal in rewardQuest.Goals)
-						done &= goal.IsAchieved;
-
-					if (done)
-						return true;
-				}
-			}
-
-			return false;
+			return player.HasQuestToFinishAt(this);
 		}
 
 		/// <summary>
@@ -1943,9 +1902,7 @@ namespace DOL.GS
 		public override void OnUpdateOrCreateForPlayer()
 		{
 			m_lastVisibleToPlayerTick = GameLoop.GameLoopTime;
-
-			if (Brain != null && !Brain.ServiceObjectId.IsSet)
-				Brain.Start();
+			Brain?.Start();
 		}
 
 		/// <summary>
@@ -1954,6 +1911,8 @@ namespace DOL.GS
 		/// <returns>true if the npc has been successfully added</returns>
 		public override bool AddToWorld()
 		{
+			movementComponent.ForceUpdatePosition();
+
 			if (!base.AddToWorld())
 				return false;
 
@@ -1966,6 +1925,9 @@ namespace DOL.GS
 			m_spawnHeading = Heading;
 
 			Brain?.Start();
+
+			if (Brain is IEncounterGateOwner gateOwner)
+				gateOwner.GateCounter?.Reset();
 
 			if (Mana <= 0 && MaxMana > 0)
 				Mana = MaxMana;
@@ -2018,7 +1980,6 @@ namespace DOL.GS
 			if (IsStealthed)
 				WasStealthed = true;
 
-			movementComponent.ForceUpdatePosition(); // Ensure a correct initial state. Movement component can't do it itself.
 			ClientService.CreateObjectForPlayers(this);
 			return true;
 		}
@@ -2119,8 +2080,6 @@ namespace DOL.GS
 				}
 			}
 
-			Brain.Stop();
-			StopFollowing();
 			TempProperties.RemoveProperty(CHARMED_TICK_PROP);
 			base.Delete();
 		}
@@ -2256,22 +2215,22 @@ namespace DOL.GS
 
 					switch (Faction.GetStandingToFaction(player))
 					{
-						case Faction.Standing.AGGRESIVE:
+						case Faction.Standing.Aggressive:
 						{
 							translationString = "GameNPC.GetAggroLevelString.Aggressive1";
 							break;
 						}
-						case Faction.Standing.HOSTILE:
+						case Faction.Standing.Hostile:
 						{
 							translationString = "GameNPC.GetAggroLevelString.Hostile1";
 							break;
 						}
-						case Faction.Standing.NEUTRAL:
+						case Faction.Standing.Neutral:
 						{
 							translationString = "GameNPC.GetAggroLevelString.Neutral1";
 							break;
 						}
-						case Faction.Standing.FRIENDLY:
+						case Faction.Standing.Friendly:
 						{
 							translationString = "GameNPC.GetAggroLevelString.Friendly1";
 							break;
@@ -2523,7 +2482,7 @@ namespace DOL.GS
 			if (!base.Interact(player))
 				return false;
 
-			if (!GameServer.ServerRules.IsSameRealm(this, player, true) && Faction != null && Faction.GetStandingToFaction(player) >= Faction.Standing.HOSTILE)
+			if (!GameServer.ServerRules.IsSameRealm(this, player, true) && Faction != null && Faction.GetStandingToFaction(player) >= Faction.Standing.Hostile)
 			{
 				player.Out.SendMessage(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameNPC.Interact.DirtyLook",
 					GetName(0, true, player.Client.Account.Language, this)), eChatType.CT_System, eChatLoc.CL_SystemWindow);
@@ -2660,6 +2619,8 @@ namespace DOL.GS
 
 		#region Combat
 
+		public override bool BenefitsFromRelics => Brain is ControlledMobBrain brain && brain.GetPlayerOwner() != null;
+
 		/// <summary>
 		/// The property that holds charmed tick if any
 		/// </summary>
@@ -2712,8 +2673,6 @@ namespace DOL.GS
 		{
 			if (ActiveWeaponSlot is not eActiveWeaponSlot.Distance)
 			{
-				StopFollowing();
-
 				if (attackComponent.AttackState)
 					attackComponent.StopAttack();
 
@@ -2723,12 +2682,14 @@ namespace DOL.GS
 			StartAttack(target);
 		}
 
-		private double damageFactor = 1;
-		private int orbsReward = 0;
-
-		public override double GetWeaponSkill(DbInventoryItem weapon)
+		public override int GetClassBaseWeaponSkill(DbInventoryItem weapon)
 		{
-			double weaponSkill = Math.Max(1, (int) Level) * 2.6 * (1 + 0.01 * (GetWeaponStat(weapon) + 30) / 2);
+			return 440;
+		}
+
+		public override double GetWeaponSkill(int weaponStat, int classBaseWeaponSkill)
+		{
+			double weaponSkill = Math.Max(1, (int) Level) * classBaseWeaponSkill * 0.005 * (1 + weaponStat * 0.005);
 			return Math.Max(1, weaponSkill * GetModified(eProperty.WeaponSkill) * 0.01);
 		}
 
@@ -2766,8 +2727,28 @@ namespace DOL.GS
 		/// <summary>
 		/// Tests if this MOB should give XP and loot based on the XPGainers
 		/// </summary>
-		/// <returns>true if it should deal XP and give loot</returns>
-		public virtual bool IsWorthReward => Brain is not IControlledBrain && CurrentRegion.Time - CHARMED_NOEXP_TIMEOUT >= TempProperties.GetProperty<long>(CHARMED_TICK_PROP);
+		public virtual RewardEligibility RewardStatus
+		{
+			get
+			{
+				if (Brain is IControlledBrain)
+					return RewardEligibility.DeniedInvalid;
+
+				long charmedTick = TempProperties.GetProperty<long>(CHARMED_TICK_PROP);
+
+				if (charmedTick != 0 && CurrentRegion.Time < charmedTick + CHARMED_NOEXP_TIMEOUT)
+					return RewardEligibility.DeniedRecentlyCharmed;
+
+				return RewardEligibility.Eligible;
+			}
+		}
+
+		public enum RewardEligibility
+		{
+			Eligible,
+			DeniedInvalid,
+			DeniedRecentlyCharmed
+		}
 
 		protected void ControlledNPC_Release()
 		{
@@ -2779,47 +2760,39 @@ namespace DOL.GS
 		/// </summary>
 		public override void ProcessDeath(GameObject killer)
 		{
-			try
+			FireAmbientSentence(eAmbientTrigger.dying, killer);
+
+			if (ControlledBrain != null)
+				ControlledNPC_Release();
+
+			StopMoving();
+			CurrentPathPoint = null;
+
+			if (killer is GameNPC pet && pet.Brain is IControlledBrain petBrain)
+				killer = petBrain.GetPlayerOwner();
+
+			if (killer != null)
 			{
-				Brain?.KillFSM();
-				FireAmbientSentence(eAmbientTrigger.dying, killer);
+				Message.SystemToArea(this, $"{GetName(0, true)} dies!", eChatType.CT_OthersDeath, killer);
 
-				if (ControlledBrain != null)
-					ControlledNPC_Release();
+				if (killer is GamePlayer player)
+					player.Out.SendMessage($"{GetName(0, true)} dies!", eChatType.CT_OthersDeath, eChatLoc.CL_SystemWindow);
 
-				StopMoving();
-
-				if (killer is GameNPC pet && pet.Brain is IControlledBrain petBrain)
-					killer = petBrain.GetPlayerOwner();
-
-				if (killer != null)
-				{
-					Message.SystemToArea(this, $"{GetName(0, true)} dies!", eChatType.CT_PlayerDied, killer);
-
-					if (killer is GamePlayer player)
-						player.Out.SendMessage($"{GetName(0, true)} dies!", eChatType.CT_PlayerDied, eChatLoc.CL_SystemWindow);
-
-					// Deal out experience, realm points, loot... Based on server rules.
-					GameServer.ServerRules.OnNpcKilled(this, killer);
-				}
-
-				Group?.RemoveMember(this);
-				base.ProcessDeath(killer);
-
-				lock (XpGainersLock)
-				{
-					XPGainers.Clear();
-				}
-
-				Delete();
-				TempProperties.RemoveAllProperties();
-				StartRespawn();
+				// Deal out experience, realm points, loot... Based on server rules.
+				GameServer.ServerRules.OnNpcKilled(this, killer);
 			}
-			finally
+
+			Group?.RemoveMember(this);
+			base.ProcessDeath(killer);
+
+			lock (XpGainersLock)
 			{
-				if (IsBeingHandledByReaperService)
-					base.ProcessDeath(killer);
+				XPGainers.Clear();
 			}
+
+			Delete();
+			TempProperties.RemoveAllProperties();
+			StartRespawn();
 		}
 
 		/// <summary>
@@ -2900,17 +2873,6 @@ namespace DOL.GS
 		}
 
 		/// <summary>
-		/// Calculates how many times left hand swings
-		/// </summary>
-		/// <returns></returns>
-		public int CalculateLeftHandSwingCount()
-		{
-			if (Util.Chance(m_leftHandSwingChance))
-				return 1;
-			return 0;
-		}
-
-		/// <summary>
 		/// Checks whether Living has ability to use lefthanded weapons
 		/// </summary>
 		public bool CanUseLefthandedWeapon
@@ -2932,22 +2894,6 @@ namespace DOL.GS
 
 			base.StartInterruptTimer(duration, attackType, attacker);
 		}
-
-		protected override bool CheckRangedAttackInterrupt(GameLiving attacker, AttackData.eAttackType attackType)
-		{
-			// Immobile NPCs can only be interrupted by their own target, and in melee range.
-			if (MaxSpeedBase == 0 && (attacker != TargetObject || !IsWithinRadius(attacker, MeleeAttackRange)))
-				return false;
-
-			bool interrupted = base.CheckRangedAttackInterrupt(attacker, attackType);
-
-			if (interrupted)
-				attackComponent.attackAction.OnAimInterrupt(attacker);
-
-			return interrupted;
-		}
-
-		public override int SelfInterruptDurationOnMeleeAttack => AttackSpeed(ActiveWeapon);
 
 		/// <summary>
 		/// The time to wait before each mob respawn
@@ -3032,16 +2978,7 @@ namespace DOL.GS
 		/// </summary>
 		public virtual void StartRespawn()
 		{
-			if (IsAlive)
-				return;
-
-			if (m_healthRegenerationTimer != null)
-			{
-				m_healthRegenerationTimer.Stop();
-				m_healthRegenerationTimer = null;
-			}
-
-			if (RespawnInterval <= 0)
+			if (IsAlive || RespawnInterval <= 0)
 				return;
 
 			lock (_respawnTimerLock)
@@ -3093,22 +3030,6 @@ namespace DOL.GS
 			return 0;
 		}
 
-		/// <summary>
-		/// The chance for a critical hit
-		/// </summary>
-		public int AttackCriticalChance(DbInventoryItem weapon)
-		{
-			if (m_activeWeaponSlot == eActiveWeaponSlot.Distance)
-			{
-				if (rangeAttackComponent.RangedAttackType == eRangedAttackType.Critical)
-					return 0; // no crit damage for crit shots
-				else
-					return GetModified(eProperty.CriticalArcheryHitChance);
-			}
-
-			return GetModified(eProperty.CriticalMeleeHitChance);
-		}
-
 		public override void OnAttackedByEnemy(AttackData ad)
 		{
 			Flags &= ~eFlags.STEALTH;
@@ -3120,59 +3041,6 @@ namespace DOL.GS
 		}
 
 		public virtual bool CanDropLoot => true;
-
-		/// <summary>
-		/// The enemy is healed, so we add to the xp gainers list
-		/// </summary>
-		/// <param name="enemy"></param>
-		/// <param name="healSource"></param>
-		/// <param name="changeType"></param>
-		/// <param name="healAmount"></param>
-		public override void EnemyHealed(GameLiving enemy, GameObject healSource, eHealthChangeType changeType, int healAmount)
-		{
-			base.EnemyHealed(enemy, healSource, changeType, healAmount);
-
-			if (changeType != eHealthChangeType.Spell)
-				return;
-			if (enemy == healSource)
-				return;
-			if (!IsAlive)
-				return;
-
-			GameLiving healSourceLiving = healSource as GameLiving;
-
-			if (healSourceLiving == null)
-				return;
-
-			Group attackerGroup = healSourceLiving.Group;
-			if (attackerGroup != null)
-			{
-				// collect "helping" group players in range
-				var xpGainers = attackerGroup.GetMembersInTheGroup()
-					.Where(l => this.IsWithinRadius(l, WorldMgr.MAX_EXPFORKILL_DISTANCE) && l.IsAlive && l.ObjectState == eObjectState.Active).ToArray();
-
-				float damageAmount = (float)healAmount / xpGainers.Length;
-
-				foreach (GameLiving living in xpGainers)
-				{
-					// add players in range for exp to exp gainers
-					this.AddXPGainer(living, damageAmount);
-				}
-			}
-			else
-			{
-				this.AddXPGainer(healSourceLiving, healAmount);
-			}
-
-			if (healSource is GamePlayer || (healSource is GameNPC healSourceNpc && (healSourceNpc.Flags & eFlags.PEACE) == 0))
-			{
-				// first check to see if the healer is in our aggrolist so we don't go attacking anyone who heals
-				if (Brain is StandardMobBrain mobBrain && mobBrain.GetBaseAggroAmount(healSourceLiving) > 0)
-					mobBrain.AddToAggroList(healSourceLiving, healAmount);
-			}
-
-			//DealDamage needs to be called after addxpgainer!
-		}
 
 		public override long LastAttackTickPvE
 		{
@@ -3355,6 +3223,8 @@ namespace DOL.GS
 
 		public Spell GetScaledSpell(Spell spell)
 		{
+			spell.IsDynamic = true; // We don't know if another NPC will scale it. We have to assume that it will happen.
+
 			if (spell == null || Level < 1)
 				return spell;
 
@@ -3454,7 +3324,6 @@ namespace DOL.GS
 				}
 			}
 
-			spell.IsDynamic = true;
 			return spell;
 		}
 
@@ -3468,39 +3337,7 @@ namespace DOL.GS
 		/// </summary>
 		public virtual bool CastSpell(Spell spell, SpellLine line, bool checkLos)
 		{
-			bool casted;
-
-			// Don't check for LoS if the spell has no range.
-			if (checkLos && spell.Range > 0)
-				casted = CastSpell(spell, line);
-			else
-			{
-				Spell spellToCast;
-
-				if (line.KeyName == GlobalSpellsLines.Mob_Spells)
-				{
-					// NPC spells will get the level equal to their caster
-					spellToCast = (Spell)spell.Clone();
-					spellToCast.Level = Level;
-				}
-				else
-					spellToCast = spell;
-
-				casted = base.CastSpell(spellToCast, line);
-			}
-
-			return casted;
-		}
-
-		public virtual void OnCastSpellLosCheckFail(GameObject target)
-		{
-			// In case the NPC changes target while casting on the current one and the first LoS check was positive.
-			if (castingComponent.QueuedSpellHandler?.Target == target)
-				castingComponent.ClearUpQueuedSpellHandler();
-
-			// Start following the target if there is no LoS.
-			if (TargetObject == target)
-				Follow(target, StickMinimumRange, StickMaximumRange);
+			return base.CastSpell(spell, line, null, checkLos);
 		}
 
 		#endregion
@@ -4113,10 +3950,7 @@ namespace DOL.GS
 			LoadTemplate(template);
 		}
 
-		private double m_campBonus = 1;
-
-		public virtual double CampBonus { get => m_campBonus; set => m_campBonus = value; }
-		public virtual double MaxHealthScalingFactor => 1.0;
-		public double DamageFactor { get => damageFactor; set => damageFactor = value; }
+		public double CampBonus { get; set; } = 1;
+		public double DamageFactor { get; set; } = 1;
 	}
 }

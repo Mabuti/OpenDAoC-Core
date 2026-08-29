@@ -52,7 +52,6 @@ namespace DOL.GS
         {
             INpcTemplate npcTemplate = NpcTemplateMgr.GetTemplate(60162545);
             LoadTemplate(npcTemplate);
-            IssordenBrain.BafMobs = false;
             Faction = FactionMgr.GetFactionByID(140);
 
             IssordenBrain sbrain = new IssordenBrain();
@@ -78,14 +77,13 @@ namespace DOL.AI.Brain
             AggroRange = 600;
             ThinkInterval = 2000;
         }
-        public static bool IsTargetPicked = false;
-        public static GamePlayer randomtarget = null;
-        public static GamePlayer RandomTarget
+        public GamePlayer randomtarget = null;
+        public GamePlayer RandomTarget
         {
             get { return randomtarget; }
             set { randomtarget = value; }
         }
-        public static bool BafMobs = false;
+        public bool BafMobs = false;
         private bool PrepareBolt = false;
         public override void Think()
         {
@@ -199,13 +197,12 @@ namespace DOL.AI.Brain
                     spell.Name = "Issorden Root";
                     spell.TooltipId = 277;
                     spell.SpellID = 11741;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = "SpeedDecrease";
                     spell.Uninterruptible = true;
                     spell.MoveCast = true;
                     spell.DamageType = (int) eDamageType.Cold;
                     m_IssoRoot = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_IssoRoot);
                 }
                 return m_IssoRoot;
             }
@@ -234,7 +231,6 @@ namespace DOL.AI.Brain
                     spell.MoveCast = true;
                     spell.DamageType = (int)eDamageType.Cold;
                     m_Isso_Bolt = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Isso_Bolt);
                 }
                 return m_Isso_Bolt;
             }

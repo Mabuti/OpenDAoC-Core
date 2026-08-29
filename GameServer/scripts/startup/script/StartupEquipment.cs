@@ -25,12 +25,12 @@ namespace DOL.GS.GameEvents
 		/// Declare a logger for this class.
 		/// </summary>
 		private static readonly Logging.Logger log = Logging.LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
-		
+
 		/// <summary>
 		/// Table Cache
 		/// </summary>
 		private static readonly Dictionary<eCharacterClass, List<DbItemTemplate>> m_cachedClassEquipment = new Dictionary<eCharacterClass, List<DbItemTemplate>>();
-		
+
 		/// <summary>
 		/// Register Character Creation Events
 		/// </summary>
@@ -43,7 +43,7 @@ namespace DOL.GS.GameEvents
 			InitStarterEquipment();
 			GameEventMgr.AddHandler(DatabaseEvent.CharacterCreated, new DOLEventHandler(OnCharacterCreation));
 		}
-		
+
 		/// <summary>
 		/// Init (Or Refresh) Starter Equipment Cache
 		/// </summary>
@@ -51,7 +51,7 @@ namespace DOL.GS.GameEvents
 		public static void InitStarterEquipment()
 		{
 			m_cachedClassEquipment.Clear();
-			
+
 			// Init Startup Collection.
 			foreach (var equipclass in GameServer.Database.SelectAllObjects<StarterEquipment>())
 			{
@@ -67,7 +67,7 @@ namespace DOL.GS.GameEvents
 								eCharacterClass gameClass = (eCharacterClass)cId;
 								if (!m_cachedClassEquipment.ContainsKey(gameClass))
 									m_cachedClassEquipment.Add(gameClass, new List<DbItemTemplate>());
-								
+
 								m_cachedClassEquipment[gameClass].Add(equipclass.Template);
 							}
 							catch (Exception e)
@@ -86,7 +86,7 @@ namespace DOL.GS.GameEvents
 				}
 			}
 		}
-		
+
 		/// <summary>
 		/// Unregister Character Creation Events
 		/// </summary>
@@ -98,7 +98,7 @@ namespace DOL.GS.GameEvents
 		{
 			GameEventMgr.RemoveHandler(DatabaseEvent.CharacterCreated, new DOLEventHandler(OnCharacterCreation));
 		}
-		
+
 		/// <summary>
 		/// On Character Creation set up equipment from StarterEquipment Table.
 		/// </summary>
@@ -109,57 +109,56 @@ namespace DOL.GS.GameEvents
 		{
 			if (!ENABLE_FREE_STARTER_EQUIPMENT)
 				return;
-			
+
 			// Check Args
 			var chArgs = args as CharacterEventArgs;
-			
+
 			if (chArgs == null)
 				return;
-			
+
 			DbCoreCharacter ch = chArgs.Character;
-			
+
 			try
 			{
 				var usedSlots = new Dictionary<eInventorySlot, bool>();
-				
+
 				if (m_cachedClassEquipment.ContainsKey((eCharacterClass)ch.Class))
 				{
 					// sort for filling righ hand first...
 					foreach (var item in m_cachedClassEquipment.Where(k => k.Key == 0 || k.Key == (eCharacterClass)ch.Class).SelectMany(kv => kv.Value).OrderBy(it => it.Item_Type))
 					{
 						// create Inventory item and set to owner.
-						GameInventoryItem inventoryItem = GameInventoryItem.Create(new DbItemUnique(item));
+						GameInventoryItem inventoryItem = GameInventoryItem.Create(item.IsStackable ? item : new DbItemUnique(item));
 						inventoryItem.OwnerID = ch.ObjectId;
 						inventoryItem.Creator = $"{nameof(CreationStartupEquipment)}";
 						inventoryItem.Realm = ch.Realm;
 
 						bool itemChoosen = false;
-		
+						eInventorySlot currentSlot = (eInventorySlot) inventoryItem.Item_Type;
+
 						// if equipable item, find equippable slot
-						foreach (eInventorySlot currentSlot in GameLivingInventory.EQUIP_SLOTS)
+						if (GameLivingInventory.EquipmentSlots.Contains(currentSlot))
 						{
-							if ((eInventorySlot)inventoryItem.Item_Type == currentSlot)
+							eInventorySlot chosenSlot;
+
+							// try to set Left Hand in Right Hand slot if not already used.
+							if (currentSlot == eInventorySlot.LeftHandWeapon && (eObjectType)inventoryItem.Object_Type != eObjectType.Shield && !usedSlots.ContainsKey(eInventorySlot.RightHandWeapon))
 							{
-								eInventorySlot chosenSlot;
-		
-								// try to set Left Hand in Right Hand slot if not already used.
-								if (currentSlot == eInventorySlot.LeftHandWeapon && (eObjectType)inventoryItem.Object_Type != eObjectType.Shield && !usedSlots.ContainsKey(eInventorySlot.RightHandWeapon))
-								{
-									chosenSlot = eInventorySlot.RightHandWeapon;
-								}
-								else
-								{
-									chosenSlot = currentSlot;
-								}
-		
-								// Slot is occupied, add this to backpack.
-								if (usedSlots.ContainsKey(chosenSlot))
-								{
-									if (log.IsWarnEnabled)
-										log.WarnFormat("Cannot add Starter Equipment item {0} to class {1} an item is already assigned to this slot! (Added to Backpack...)", item.Id_nb, ch.Class);
-									break;
-								}
-		
+								chosenSlot = eInventorySlot.RightHandWeapon;
+							}
+							else
+							{
+								chosenSlot = currentSlot;
+							}
+
+							// Slot is occupied, add this to backpack.
+							if (usedSlots.ContainsKey(chosenSlot))
+							{
+								if (log.IsWarnEnabled)
+									log.WarnFormat("Cannot add Starter Equipment item {0} to class {1} an item is already assigned to this slot! (Added to Backpack...)", item.Id_nb, ch.Class);
+							}
+							else
+							{
 								inventoryItem.SlotPosition = (int)chosenSlot;
 								usedSlots[chosenSlot] = true;
 								if (ch.ActiveWeaponSlot == 0)
@@ -176,17 +175,16 @@ namespace DOL.GS.GameEvents
 											ch.ActiveWeaponSlot = (byte)eActiveWeaponSlot.Distance;
 											break;
 									}
-									
+
 									// Save char to DB if Active Slot changed...
 									if (ch.ActiveWeaponSlot != 0)
 										GameServer.Database.SaveObject(ch);
 								}
-								
+
 								itemChoosen = true;
-								break;
 							}
 						}
-						
+
 						if (!itemChoosen)
 						{
 							//otherwise stick the item in the backpack
@@ -200,7 +198,7 @@ namespace DOL.GS.GameEvents
 								}
 							}
 						}
-						
+
 						GameServer.Database.AddObject(inventoryItem);
 					}
 				}

@@ -56,7 +56,7 @@ namespace DOL.GS
             SetOwnBrain(sBrain);
             sBrain.AggroLevel = 100;
             sBrain.AggroRange = 500;
-            PrincessNahemahBrain.spawnMinions = true;
+            sBrain.spawnMinions = true;
 
             // demon
             BodyType = 2;
@@ -66,10 +66,8 @@ namespace DOL.GS
             base.AddToWorld();
             return true;
         }
-        public override void Die(GameObject killer)
+        public override void ProcessDeath(GameObject killer)
         {
-            base.Die(killer);
-
             foreach (GameNPC npc in GetNPCsInRadius(4000))
             {
                 if (npc.Brain is NahemahMinionBrain)
@@ -77,6 +75,8 @@ namespace DOL.GS
                     npc.RemoveFromWorld();
                 }
             }
+
+            base.ProcessDeath(killer);
         }
     }
 }
@@ -87,7 +87,7 @@ namespace DOL.AI.Brain
     {
         private static readonly Logging.Logger log = Logging.LoggerManager.Create(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
-        public static bool spawnMinions = true;
+        public bool spawnMinions = true;
         private bool RemoveAdds = false;
         public override void Think()
         {
@@ -224,13 +224,12 @@ namespace DOL.GS
                     spell.Range = 1500;
                     spell.Radius = 350;
                     spell.SpellID = 99998;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = "DirectDamage";
                     spell.Uninterruptible = true;
                     spell.MoveCast = true;
                     spell.DamageType = (int) eDamageType.Heat;
                     m_fireDDSpell = new Spell(spell, 50);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_fireDDSpell);
                 }
 
                 return m_fireDDSpell;

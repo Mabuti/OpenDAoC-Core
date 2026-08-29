@@ -1,6 +1,5 @@
 using DOL.GS;
 using DOL.GS.Spells;
-using DOL.GS.Effects;
 
 namespace DOL.AI.Brain
 {
@@ -15,41 +14,37 @@ namespace DOL.AI.Brain
 
 		protected override void CheckPlayerAggro()
 		{
-			//Check if we are already attacking, return if yes
-			if (Body.attackComponent.AttackState)
+			if (m_spellHandler == null)
 				return;
 
-			if(m_spellHandler!=null)
+			foreach (var player in BuildPlayerAggroCandidateLoop())
 			{
-				foreach (GamePlayer player in Body.GetPlayersInRadius((ushort) AggroRange))
-				{
-					if (AggroList.ContainsKey(player))
-						continue; // add only new players
-					if (!player.IsAlive || player.ObjectState != GameObject.eObjectState.Active || player.IsStealthed)
-						continue;
-					if (player.Steed != null)
-						continue; //do not attack players on steed
-					if(player == m_spellHandler.Caster)
-						continue;
-					if (!GameServer.ServerRules.IsAllowedToAttack(m_spellHandler.Caster, player, true))
-						continue;
+				if (IsInAggroList(player))
+					continue; // add only new players
+				if (!player.IsAlive || player.ObjectState != GameObject.eObjectState.Active || player.IsStealthed)
+					continue;
+				if (player.Steed != null)
+					continue; //do not attack players on steed
+				if (player == m_spellHandler.Caster)
+					continue;
+				if (!GameServer.ServerRules.IsAllowedToAttack(m_spellHandler.Caster, player, true))
+					continue;
 
-					AddToAggroList(player, 1);
-				}
+				AddToAggroList(player);
 			}
 		}
 
 		protected override void CheckNpcAggro()
 		{
-			if(m_spellHandler!=null)
+			if (m_spellHandler == null)
+				return;
+
+			foreach (var npc in BuildNpcAggroCandidateLoop())
 			{
-				foreach (GameNPC npc in Body.GetNPCsInRadius((ushort)AggroRange))
+				if (GameServer.ServerRules.IsAllowedToAttack(m_spellHandler.Caster, npc, true))
 				{
-					if (GameServer.ServerRules.IsAllowedToAttack(m_spellHandler.Caster, npc, true))
-					{
-						AddToAggroList(npc, npc.Level<<1);
-						return;
-					}
+					AddToAggroList(npc);
+					return;
 				}
 			}
 		}

@@ -14,8 +14,6 @@ namespace DOL.GS
     public class GameInventoryItem : DbInventoryItem, IGameInventoryItem, ITranslatableObject {
         private static readonly Logging.Logger log = Logging.LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
 
-        protected GamePlayer m_owner = null;
-
         public GameInventoryItem()
             : base()
         {
@@ -64,7 +62,6 @@ namespace DOL.GS
         /// <returns></returns>
         public virtual bool CheckValid(GamePlayer player)
         {
-            m_owner = player;
             return true;
         }
 
@@ -181,19 +178,13 @@ namespace DOL.GS
         /// Player receives this item (added to players inventory)
         /// </summary>
         /// <param name="player"></param>
-        public virtual void OnReceive(GamePlayer player)
-        {
-            m_owner = player;
-        }
+        public virtual void OnReceive(GamePlayer player) { }
 
         /// <summary>
         /// Player loses this item (removed from inventory)
         /// </summary>
         /// <param name="player"></param>
-        public virtual void OnLose(GamePlayer player)
-        {
-            m_owner = null;
-        }
+        public virtual void OnLose(GamePlayer player) { }
 
         /// <summary>
         /// Drop this item on the ground
@@ -203,17 +194,19 @@ namespace DOL.GS
         public virtual WorldInventoryItem Drop(GamePlayer player)
         {
             PlayerDiscardedWorldInventoryItem worldItem = new(this);
-
-            Point2D itemloc = player.GetPointFromHeading(player.Heading, 30);
-            worldItem.X = itemloc.X;
-            worldItem.Y = itemloc.Y;
+            Point2D loc = player.GetPointFromHeading(player.Heading, 30);
+            worldItem.X = loc.X;
+            worldItem.Y = loc.Y;
             worldItem.Z = player.Z;
             worldItem.Heading = player.Heading;
             worldItem.CurrentRegionID = player.CurrentRegionID;
+            worldItem.CurrentHouse = player.CurrentHouse;
+
+            if (worldItem.CurrentHouse != null)
+                worldItem.InHouse = true;
 
             worldItem.AddOwner(player);
             worldItem.AddToWorld();
-
             return worldItem;
         }
 
@@ -399,7 +392,7 @@ namespace DOL.GS
             {
                 WriteUsableClasses(delve, player.Client);
                 WriteMagicalBonuses(delve, player.Client, false);
-                DelveShieldStats(delve, player.Client);
+                DelveShieldStats(delve, player);
             }
 
             if (Object_Type == (int)eObjectType.Magical || Object_Type == (int)eObjectType.AlchemyTincture || Object_Type == (int)eObjectType.SpellcraftGem)
@@ -851,429 +844,12 @@ namespace DOL.GS
 
         public double GetTotalUtility()
         {
-            double totalUti = 0;
-
-            //based off of eProperty
-            //1-8 == stats = *.6667
-            //9 == power cap = *2
-            //10 == maxHP =  *.25
-            //11-19 == resists = *2
-            //20-115 == skill = *5
-            //163 == all magic = *5
-            //164 == all melee = *5
-            //167 == all dual weild = *5
-            //168 == all archery = *5
-            if (Bonus1Type != 0 &&
-                Bonus1 != 0)
-            {
-                if (Bonus1Type < 9 || Bonus1Type == 156)
-                {
-                    totalUti += Bonus1 * .6667;
-                }
-                else if (Bonus1Type == 9)
-                {
-                    totalUti += Bonus1;
-                }
-                else if (Bonus1Type == 10)
-                {
-                    totalUti += Bonus1 * .25;
-                }
-                else if (Bonus1Type < 20)
-                {
-                    totalUti += Bonus1 * 2;
-                }
-                else if (Bonus1Type < 115)
-                {
-                    totalUti += Bonus1 * 5;
-                }
-                else if (Bonus1Type == 163
-                  || Bonus1Type == 164
-                  || Bonus1Type == 167
-                  || Bonus1Type == 168
-                  || Bonus1Type == 213)
-                {
-                    totalUti += Bonus1 * 5;
-                }
-            }
-
-            if (Bonus2Type != 0 &&
-                Bonus2 != 0)
-            {
-                if (Bonus2Type < 9 || Bonus2Type == 156)
-                {
-                    totalUti += Bonus2 * .6667;
-                }
-                else if (Bonus2Type == 9)
-                {
-                    totalUti += Bonus2;
-                }
-                else if (Bonus2Type == 10)
-                {
-                    totalUti += Bonus2 * .25;
-                }
-                else if (Bonus2Type < 20)
-                {
-                    totalUti += Bonus2 * 2;
-                }
-                else if (Bonus2Type < 115)
-                {
-                    totalUti += Bonus2 * 5;
-                }
-                else if (Bonus2Type == 163
-                  || Bonus2Type == 164
-                  || Bonus2Type == 167
-                  || Bonus2Type == 168
-                  || Bonus2Type == 213)
-                {
-                    totalUti += Bonus2 * 5;
-                }
-            }
-
-            if (Bonus3Type != 0 &&
-                Bonus3 != 0)
-            {
-                if (Bonus3Type < 9 || Bonus3Type == 156)
-                {
-                    totalUti += Bonus3 * .6667;
-                }
-                else if (Bonus3Type == 9)
-                {
-                    totalUti += Bonus3;
-                }
-                else if (Bonus3Type == 10)
-                {
-                    totalUti += Bonus3 * .25;
-                }
-                else if (Bonus3Type < 20)
-                {
-                    totalUti += Bonus3 * 2;
-                }
-                else if (Bonus3Type < 115)
-                {
-                    totalUti += Bonus3 * 5;
-                }
-                else if (Bonus3Type == 163
-                  || Bonus3Type == 164
-                  || Bonus3Type == 167
-                  || Bonus3Type == 168
-                  || Bonus3Type == 213)
-                {
-                    totalUti += Bonus3 * 5;
-                }
-            }
-
-            if (Bonus4Type != 0 &&
-                Bonus4 != 0)
-            {
-                if (Bonus4Type < 9 || Bonus4Type == 156)
-                {
-                    totalUti += Bonus4 * .6667;
-                }
-                else if (Bonus4Type == 9)
-                {
-                    totalUti += Bonus4;
-                }
-                else if (Bonus4Type == 10)
-                {
-                    totalUti += Bonus4 * .25;
-                }
-                else if (Bonus4Type < 20)
-                {
-                    totalUti += Bonus4 * 2;
-                }
-                else if (Bonus4Type < 115)
-                {
-                    totalUti += Bonus4 * 5;
-                }
-                else if (Bonus4Type == 163
-                  || Bonus4Type == 164
-                  || Bonus4Type == 167
-                  || Bonus4Type == 168
-                  || Bonus4Type == 213)
-                {
-                    totalUti += Bonus4 * 5;
-                }
-            }
-
-            if (Bonus5Type != 0 &&
-                Bonus5 != 0)
-            {
-                if (Bonus5Type < 9 || Bonus1Type == 156)
-                {
-                    totalUti += Bonus5 * .6667;
-                }
-                else if (Bonus5Type == 9)
-                {
-                    totalUti += Bonus5;
-                }
-                else if (Bonus5Type == 10)
-                {
-                    totalUti += Bonus5 * .25;
-                }
-                else if (Bonus5Type < 20)
-                {
-                    totalUti += Bonus5 * 2;
-                }
-                else if (Bonus5Type < 115)
-                {
-                    totalUti += Bonus5 * 5;
-                }
-                else if (Bonus5Type == 163
-                  || Bonus5Type == 164
-                  || Bonus5Type == 167
-                  || Bonus5Type == 168
-                  || Bonus5Type == 213)
-                {
-                    totalUti += Bonus5 * 5;
-                }
-            }
-
-            if (Bonus6Type != 0 &&
-                Bonus6 != 0)
-            {
-                if (Bonus6Type < 9 || Bonus1Type == 156)
-                {
-                    totalUti += Bonus6 * .6667;
-                }
-                else if (Bonus6Type == 9)
-                {
-                    totalUti += Bonus6;
-                }
-                else if (Bonus6Type == 10)
-                {
-                    totalUti += Bonus6 * .25;
-                }
-                else if (Bonus6Type < 20)
-                {
-                    totalUti += Bonus6 * 2;
-                }
-                else if (Bonus6Type < 115)
-                {
-                    totalUti += Bonus6 * 5;
-                }
-                else if (Bonus6Type == 163
-                  || Bonus6Type == 164
-                  || Bonus6Type == 167
-                  || Bonus6Type == 168
-                  || Bonus6Type == 213)
-                {
-                    totalUti += Bonus6 * 5;
-                }
-            }
-
-            if (Bonus7Type != 0 &&
-                Bonus7 != 0)
-            {
-                if (Bonus7Type < 9 || Bonus1Type == 156)
-                {
-                    totalUti += Bonus7 * .6667;
-                }
-                else if (Bonus7Type == 9)
-                {
-                    totalUti += Bonus7;
-                }
-                else if (Bonus7Type == 10)
-                {
-                    totalUti += Bonus7 * .25;
-                }
-                else if (Bonus7Type < 20)
-                {
-                    totalUti += Bonus7 * 2;
-                }
-                else if (Bonus7Type < 115)
-                {
-                    totalUti += Bonus7 * 5;
-                }
-                else if (Bonus7Type == 163
-                  || Bonus7Type == 164
-                  || Bonus7Type == 167
-                  || Bonus7Type == 168
-                  || Bonus7Type == 213)
-                {
-                    totalUti += Bonus7 * 5;
-                }
-            }
-            if (Bonus8Type != 0 &&
-                Bonus8 != 0)
-            {
-                if (Bonus8Type < 9 || Bonus1Type == 156)
-                {
-                    totalUti += Bonus8 * .6667;
-                }
-                else if (Bonus8Type == 9)
-                {
-                    totalUti += Bonus8;
-                }
-                else if (Bonus8Type == 10)
-                {
-                    totalUti += Bonus8 * .25;
-                }
-                else if (Bonus8Type < 20)
-                {
-                    totalUti += Bonus8 * 2;
-                }
-                else if (Bonus8Type < 115)
-                {
-                    totalUti += Bonus8 * 5;
-                }
-                else if (Bonus8Type == 163
-                  || Bonus8Type == 164
-                  || Bonus8Type == 167
-                  || Bonus8Type == 168
-                  || Bonus8Type == 213)
-                {
-                    totalUti += Bonus8 * 5;
-                }
-            }
-            if (Bonus9Type != 0 &&
-                Bonus9 != 0)
-            {
-                if (Bonus9Type < 9 || Bonus1Type == 156)
-                {
-                    totalUti += Bonus9 * .6667;
-                }
-                else if (Bonus9Type == 9)
-                {
-                    totalUti += Bonus9;
-                }
-                else if (Bonus9Type == 10)
-                {
-                    totalUti += Bonus9 * .25;
-                }
-                else if (Bonus9Type < 20)
-                {
-                    totalUti += Bonus9 * 2;
-                }
-                else if (Bonus9Type < 115)
-                {
-                    totalUti += Bonus9 * 5;
-                }
-                else if (Bonus9Type == 163
-                  || Bonus9Type == 164
-                  || Bonus9Type == 167
-                  || Bonus9Type == 168
-                  || Bonus9Type == 213)
-                {
-                    totalUti += Bonus9 * 5;
-                }
-            }
-            if (Bonus10Type != 0 &&
-                Bonus10 != 0)
-            {
-                if (Bonus10Type < 9 || Bonus1Type == 156)
-                {
-                    totalUti += Bonus10 * .6667;
-                }
-                else if (Bonus10Type == 9)
-                {
-                    totalUti += Bonus10;
-                }
-                else if (Bonus10Type == 10)
-                {
-                    totalUti += Bonus10 * .25;
-                }
-                else if (Bonus10Type < 20)
-                {
-                    totalUti += Bonus10 * 2;
-                }
-                else if (Bonus10Type < 115)
-                {
-                    totalUti += Bonus10 * 5;
-                }
-                else if (Bonus10Type == 163
-                  || Bonus10Type == 164
-                  || Bonus10Type == 167
-                  || Bonus10Type == 168
-                  || Bonus10Type == 213)
-                {
-                    totalUti += Bonus10 * 5;
-                }
-            }
-            if (ExtraBonusType != 0 &&
-                ExtraBonus != 0)
-            {
-                if (ExtraBonusType < 9 || Bonus1Type == 156)
-                {
-                    totalUti += ExtraBonus * .6667;
-                }
-                else if (ExtraBonusType == 9)
-                {
-                    totalUti += ExtraBonus;
-                }
-                else if (ExtraBonusType == 10)
-                {
-                    totalUti += ExtraBonus * .25;
-                }
-                else if (ExtraBonusType < 20)
-                {
-                    totalUti += ExtraBonus * 2;
-                }
-                else if (ExtraBonusType < 115)
-                {
-                    totalUti += ExtraBonus * 5;
-                }
-                else if (ExtraBonusType == 163
-                  || ExtraBonusType == 164
-                  || ExtraBonusType == 167
-                  || ExtraBonusType == 168
-                  || ExtraBonusType == 213)
-                {
-                    totalUti += ExtraBonus * 5;
-                }
-            }
-
-            return totalUti;
+            return ItemUtilityCalculator.GetTotalUtility(this);
         }
 
-        private double GetSingleUtility(int BonusType, int Bonus)
+        public static double GetSingleUtility(int bonusType, int bonus)
         {
-            double totalUti = 0;
-
-            //based off of eProperty
-            //1-8 == stats = *.6667
-            //9 == power cap = *2
-            //10 == maxHP =  *.25
-            //11-19 == resists = *2
-            //20-115 == skill = *5
-            //163 == all magic = *5
-            //164 == all melee = *5
-            //167 == all dual wield = *5
-            //168 == all archery = *5
-            if (BonusType != 0 &&
-                Bonus != 0)
-            {
-                if (BonusType < 9 || BonusType == 156)
-                {
-                    totalUti += Bonus * .6667;
-                }
-                else if (BonusType == 9)
-                {
-                    totalUti += Bonus;
-                }
-                else if (BonusType == 10)
-                {
-                    totalUti += Bonus * .25;
-                }
-                else if (BonusType < 20)
-                {
-                    totalUti += Bonus * 2;
-                }
-                else if (BonusType < 115)
-                {
-                    totalUti += Bonus * 5;
-                }
-                else if (BonusType == 163
-                  || BonusType == 164
-                  || BonusType == 167
-                  || BonusType == 168
-                  || BonusType == 213)
-                {
-                    totalUti += Bonus * 5;
-                }
-            }
-
-
-            return totalUti;
+            return ItemUtilityCalculator.GetSingleUtility(bonusType, bonus);
         }
 
         protected virtual void WriteBonusLine(List<string> list, GameClient client, int bonusCat, int bonusValue)
@@ -1542,32 +1118,35 @@ namespace DOL.GS
         }
 
 
-        protected virtual void DelveShieldStats(List<string> output, GameClient client)
+        protected virtual void DelveShieldStats(List<string> output, GamePlayer player)
         {
             double itemDPS = DPS_AF / 10.0;
-            double clampedDPS = Math.Min(itemDPS, 1.2 + 0.3 * client.Player.Level);
+            double clampedDPS = Math.Min(itemDPS, 1.2 + 0.3 * player.Level);
+            if (player.RealmLevel > 39)
+                clampedDPS += 0.3;
             double itemSPD = SPD_ABS / 10.0;
+            double effectiveDPS = clampedDPS * Quality * 0.01 * ConditionPercent * 0.01; // Not shown for some reason.
 
             output.Add(" ");
             output.Add(" ");
-            output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.DamageMod"));
+            output.Add(LanguageMgr.GetTranslation(player.Client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.DamageMod"));
             if (itemDPS != 0)
             {
-                output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.BaseDPS", itemDPS.ToString("0.0")));
-                output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.ClampDPS", clampedDPS.ToString("0.0")));
+                output.Add(LanguageMgr.GetTranslation(player.Client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.BaseDPS", itemDPS.ToString("0.0")));
+                output.Add(LanguageMgr.GetTranslation(player.Client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.ClampDPS", clampedDPS.ToString("0.0")));
             }
             if (SPD_ABS >= 0)
             {
-                output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.SPD", itemSPD.ToString("0.0")));
+                output.Add(LanguageMgr.GetTranslation(player.Client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.SPD", itemSPD.ToString("0.0")));
             }
 
             output.Add(" ");
 
             switch (Type_Damage)
             {
-                case 1: output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.Small")); break;
-                case 2: output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.Medium")); break;
-                case 3: output.Add(LanguageMgr.GetTranslation(client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.Large")); break;
+                case 1: output.Add(LanguageMgr.GetTranslation(player.Client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.Small")); break;
+                case 2: output.Add(LanguageMgr.GetTranslation(player.Client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.Medium")); break;
+                case 3: output.Add(LanguageMgr.GetTranslation(player.Client.Account.Language, "DetailDisplayHandler.WriteClassicShieldInfos.Large")); break;
             }
         }
 
@@ -1579,7 +1158,7 @@ namespace DOL.GS
             if (player.RealmLevel > 39)
                 clampedDPS += 0.3;
             double itemSPD = SPD_ABS / 10.0;
-            double effectiveDPS = clampedDPS * Quality / 100.0 * Condition / MaxCondition;
+            double effectiveDPS = clampedDPS * Quality * 0.01 * ConditionPercent * 0.01;
 
             delve.Add(" ");
             delve.Add(LanguageMgr.GetTranslation(player.Client.Account.Language, "DetailDisplayHandler.WriteClassicWeaponInfos.DamageMod"));
@@ -1661,7 +1240,7 @@ namespace DOL.GS
 
             if (DPS_AF != 0)
             {
-                effectiveAF = af * Quality / 100.0 * Condition / MaxCondition * (1 + SPD_ABS / 100.0);
+                effectiveAF = af * Quality * 0.01 * ConditionPercent * 0.01 * (1 + SPD_ABS * 0.01);
                 delve.Add(LanguageMgr.GetTranslation(player.Client.Account.Language, "DetailDisplayHandler.WriteClassicArmorInfos.Factor", (int)effectiveAF));
             }
         }
@@ -1699,7 +1278,7 @@ namespace DOL.GS
                 delve.Add("   Sell Price: " + SellPrice);
             }
             delve.Add("");
-            delve.Add("        Level: " + Level);
+            delve.Add($"        Level: {Level} ({ItemConLevelGrid.GetConColor(ItemConLevelGrid.GetConLevel(client.Player.Level, Level))})");
             delve.Add("       Object: " + GlobalConstants.ObjectTypeToName(Object_Type) + " (" + Object_Type + ")");
             delve.Add("         Type: " + GlobalConstants.SlotToName(Item_Type) + " (" + Item_Type + ")");
             delve.Add("");

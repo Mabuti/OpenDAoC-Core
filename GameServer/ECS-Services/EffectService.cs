@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
 using DOL.GS.PacketHandler;
@@ -13,8 +12,7 @@ namespace DOL.GS
     {
         private static readonly Logger log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
 
-        private List<ECSGameEffect> _list;
-        private int _lastValidIndex;
+        private ServiceObjectView<ECSGameEffect> _view;
 
         public static EffectService Instance { get; }
 
@@ -29,21 +27,20 @@ namespace DOL.GS
 
             try
             {
-                _list = ServiceObjectStore.UpdateAndGetAll<ECSGameEffect>(ServiceObjectType.Effect, out _lastValidIndex);
+                _view = ServiceObjectStore.UpdateAndGetView<ECSGameEffect>(ServiceObjectType.Effect);
             }
             catch (Exception e)
             {
                 if (log.IsErrorEnabled)
-                    log.Error($"{nameof(ServiceObjectStore.UpdateAndGetAll)} failed. Skipping this tick.", e);
+                    log.Error($"{nameof(ServiceObjectStore.UpdateAndGetView)} failed. Skipping this tick.", e);
 
-                _lastValidIndex = -1;
                 return;
             }
 
-            GameLoop.ExecuteForEach(_list, _lastValidIndex + 1, TickInternal);
+            _view.ExecuteForEach(TickInternal);
 
             if (Diagnostics.CheckServiceObjectCount)
-                Diagnostics.PrintServiceObjectCount(ServiceName, ref EntityCount, _list.Count);
+                Diagnostics.PrintServiceObjectCount(ServiceName, ref EntityCount, _view.TotalValidCount);
         }
 
         private static void TickInternal(ECSGameEffect effect)
@@ -53,9 +50,14 @@ namespace DOL.GS
                 if (Diagnostics.CheckServiceObjectCount)
                     Interlocked.Increment(ref Instance.EntityCount);
 
-                long startTick = GameLoop.GetRealTime();
+                if (!GameServiceUtils.ShouldTick(effect.GetNextTick()))
+                    return;
+
+                TickMonitor monitor = new();
                 TickEffect(effect);
-                long stopTick = GameLoop.GetRealTime();
+
+                if (monitor.IsLongTick(out long elapsedMs) && log.IsWarnEnabled)
+                    log.Warn($"Long {Instance.ServiceName}.{nameof(TickInternal)} for {effect.Owner.Name}({effect.Owner.ObjectID}) Effect: {effect.EffectType} Time: {elapsedMs}ms");
             }
             catch (Exception e)
             {
@@ -65,6 +67,34 @@ namespace DOL.GS
 
         private static void TickEffect(ECSGameEffect effect)
         {
+            if (effect.IsEnded)
+            {
+                // When an effect is requested to end, it's removed immediately from the component and marked as ended,
+                // but it's only removed from ServiceObjectStore on the next tick.
+
+                // Because EffectService ticks before EffectListComponent,
+                // we need to check its state to ensure it wasn't requested to end.
+                // Otherwise, pulsing effects may tick on entities that just died (causing them to die again if the effect is a DoT).
+
+                // Removing effects from the store as soon as they're requested to end was attempted, but caused other issues,
+                // such as double poison application keeping both effect instances alive, and doesn't exempt from performing this check.
+                // See commit 3104fc40059361fcc96d29c4b189770bc6094dad
+
+                ServiceObjectStore.Remove(effect);
+                return;
+            }
+
+            if (effect.Owner.ObjectState is GameObject.eObjectState.Deleted)
+            {
+                if (log.IsDebugEnabled)
+                    log.Debug($"Discarding effect on deleted owner (Effect: {effect}) (Owner: {effect.Owner})");
+
+                // Attempt to end the effect normally, but always remove it from the store.
+                effect.End();
+                ServiceObjectStore.Remove(effect);
+                return;
+            }
+
             if (effect is ECSGameAbilityEffect abilityEffect)
                 TickAbilityEffect(abilityEffect);
             else if (effect is ECSGameSpellEffect spellEffect)
@@ -80,7 +110,7 @@ namespace DOL.GS
             }
 
             if (abilityEffect.Duration > 0 && GameServiceUtils.ShouldTick(abilityEffect.ExpireTick))
-                abilityEffect.Stop();
+                abilityEffect.End();
         }
 
         static void TickSpellEffect(ECSGameSpellEffect spellEffect)
@@ -102,7 +132,7 @@ namespace DOL.GS
                 // So only cancel them if their source is no longer active.
                 if (spellHandler.PulseEffect?.IsActive != true)
                 {
-                    spellEffect.Stop();
+                    spellEffect.End();
                     return;
                 }
             }
@@ -125,7 +155,7 @@ namespace DOL.GS
             // Checking `IsVisibleToPlayers` should be enough for this purpose.
             if (caster is GameNPC npcCaster && !npcCaster.IsVisibleToPlayers)
             {
-                spellEffect.Stop();
+                spellEffect.End();
                 return;
             }
 
@@ -141,9 +171,17 @@ namespace DOL.GS
             // Not every pulsing effect is a `ECSPulseEffect`. Snares and roots decreasing effect are also handled as pulsing spells for example.
             if (spellEffect is ECSPulseEffect pulseEffect)
             {
+                // This should be unreachable.
                 if (!caster.ActivePulseSpells.ContainsKey(spell.SpellType))
-                    pulseEffect.Stop();
-                else
+                {
+                    pulseEffect.End();
+                    return;
+                }
+
+                // Pulsing effects still tick normally but don't cast any spell if the caster is crowd controlled.
+                // They also don't buffer, meaning the CC expiring doesn't necessarily make the pulsing effect tick immediately.
+                // Accurate 1.65 behavior.
+                if (!caster.IsCrowdControlled)
                 {
                     if (spell.PulsePower > 0)
                     {
@@ -155,7 +193,7 @@ namespace DOL.GS
                         else
                         {
                             (spellHandler as SpellHandler).MessageToCaster("You do not have enough power and your spell was canceled.", eChatType.CT_SpellExpires);
-                            pulseEffect.Stop();
+                            pulseEffect.End();
                             return;
                         }
                     }
@@ -164,28 +202,25 @@ namespace DOL.GS
 
                     if (spell.IsHarmful && spell.SpellType is not eSpellType.SpeedDecrease)
                     {
-                        if (!pulseEffect.Owner.IsMezzed && !pulseEffect.Owner.IsStunned)
-                            (spellHandler as SpellHandler).SendCastAnimation();
+                        if (!pulseEffect.Owner.IsCrowdControlled)
+                            (spellHandler as SpellHandler).SendCastAnimation(0);
                     }
+                }
 
-                    List<GameLiving> livings = null;
+                foreach (var pair in pulseEffect.ChildEffects)
+                {
+                    ECSGameSpellEffect childEffect = pair.Value;
 
-                    foreach (var pair in pulseEffect.ChildEffects)
+                    if (GameServiceUtils.ShouldTick(childEffect.ExpireTick))
                     {
-                        ECSGameSpellEffect childEffect = pair.Value;
+                        // Don't stop effects that were replaced.
+                        // `ChildEffects` isn't updated when this happens and still keeps a reference.
+                        // Primarily affects speed songs.
+                        if (childEffect.IsBeingReplaced)
+                            continue;
 
-                        if (GameServiceUtils.ShouldTick(childEffect.ExpireTick))
-                        {
-                            livings ??= GameLoop.GetListForTick<GameLiving>();
-                            livings.Add(pair.Key);
-                            childEffect.Stop();
-                        }
-                    }
-
-                    if (livings != null)
-                    {
-                        foreach (GameLiving living in livings)
-                            pulseEffect.ChildEffects.Remove(living);
+                        childEffect.End();
+                        pulseEffect.ChildEffects.Remove(pair.Key);
                     }
                 }
             }
@@ -204,7 +239,7 @@ namespace DOL.GS
 
                 if (factor <= 0)
                 {
-                    spellEffect.Stop();
+                    spellEffect.End();
                     return;
                 }
             }

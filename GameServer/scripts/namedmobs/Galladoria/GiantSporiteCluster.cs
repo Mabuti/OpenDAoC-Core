@@ -59,7 +59,7 @@ namespace DOL.GS
                 }
             }
         }
-        public override void Die(GameObject killer)
+        public override void ProcessDeath(GameObject killer)
         {
             foreach (GameNPC copy in GetNPCsInRadius(10000))
             {
@@ -71,7 +71,7 @@ namespace DOL.GS
                     }
                 }
             }
-            base.Die(killer);
+            base.ProcessDeath(killer);
         }
         public void Spawn()
         {
@@ -176,13 +176,12 @@ namespace DOL.AI.Brain
                     spell.Radius = 200;
                     spell.Range = 600;
                     spell.SpellID = 11709;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = "DirectDamage";
                     spell.Uninterruptible = true;
                     spell.MoveCast = true;
                     spell.DamageType = (int) eDamageType.Cold;
                     m_GSCAoe = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_GSCAoe);
                 }
 
                 return m_GSCAoe;
@@ -244,7 +243,7 @@ namespace DOL.GS
                 }
             }
         }
-        public override void Die(GameObject killer)
+        public override void ProcessDeath(GameObject killer)
         {
             foreach(GameNPC copy in GetNPCsInRadius(10000))
             {
@@ -266,7 +265,7 @@ namespace DOL.GS
                     }
                 }
             }
-            base.Die(killer);
+            base.ProcessDeath(killer);
         }
         public override short Strength { get => base.Strength; set => base.Strength = 50; }
         public override short Quickness { get => base.Quickness; set => base.Quickness = 100; }

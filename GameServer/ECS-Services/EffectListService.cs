@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using System.Threading;
 using DOL.Logging;
@@ -12,8 +11,7 @@ namespace DOL.GS
     {
         private static readonly Logger log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
 
-        private List<EffectListComponent> _list;
-        private int _lastValidIndex;
+        private ServiceObjectView<EffectListComponent> _view;
 
         public static EffectListService Instance { get; }
 
@@ -22,42 +20,40 @@ namespace DOL.GS
             Instance = new();
         }
 
-        public override void Tick()
+        public override void BeginTick()
         {
             ProcessPostedActionsParallel();
 
             try
             {
-                _list = ServiceObjectStore.UpdateAndGetAll<EffectListComponent>(ServiceObjectType.EffectListComponent, out _lastValidIndex);
+                _view = ServiceObjectStore.UpdateAndGetView<EffectListComponent>(ServiceObjectType.EffectListComponent);
             }
             catch (Exception e)
             {
                 if (log.IsErrorEnabled)
-                    log.Error($"{nameof(ServiceObjectStore.UpdateAndGetAll)} failed. Skipping this tick.", e);
+                    log.Error($"{nameof(ServiceObjectStore.UpdateAndGetView)} failed. Skipping this tick.", e);
 
-                _lastValidIndex = -1;
                 return;
             }
 
-            GameLoop.ExecuteForEach(_list, _lastValidIndex + 1, TickInternal);
+            _view.ExecuteForEach(BeginTickInternal);
 
             if (Diagnostics.CheckServiceObjectCount)
-                Diagnostics.PrintServiceObjectCount(ServiceName, ref EntityCount, _list.Count);
+                Diagnostics.PrintServiceObjectCount(ServiceName, ref EntityCount, _view.TotalValidCount);
         }
 
-        private static void TickInternal(EffectListComponent effectListComponent)
+        private static void BeginTickInternal(EffectListComponent effectListComponent)
         {
             try
             {
                 if (Diagnostics.CheckServiceObjectCount)
                     Interlocked.Increment(ref Instance.EntityCount);
 
-                long startTick = GameLoop.GetRealTime();
-                effectListComponent.Tick();
-                long stopTick = GameLoop.GetRealTime();
+                TickMonitor monitor = new();
+                effectListComponent.BeginTick();
 
-                if (stopTick - startTick > Diagnostics.LongTickThreshold)
-                    log.Warn($"Long {Instance.ServiceName}.{nameof(TickInternal)} for: {effectListComponent.Owner.Name}({effectListComponent.Owner.ObjectID}) Time: {stopTick - startTick}ms");
+                if (monitor.IsLongTick(out long elapsedMs) && log.IsWarnEnabled)
+                    log.Warn($"Long {Instance.ServiceName}.{nameof(BeginTickInternal)} for {effectListComponent.Owner.Name}({effectListComponent.Owner.ObjectID}) Time: {elapsedMs}ms");
             }
             catch (Exception e)
             {
@@ -65,39 +61,81 @@ namespace DOL.GS
             }
         }
 
-        public static ECSGameEffect GetEffectOnTarget(GameLiving target, eEffect effectType, eSpellType spellType = eSpellType.None)
+        public override void EndTick()
         {
-            if (spellType is eSpellType.None)
+            _view.ExecuteForEach(EndTickInternal);
+        }
+
+        private static void EndTickInternal(EffectListComponent effectListComponent)
+        {
+            try
+            {
+                TickMonitor monitor = new();
+                effectListComponent.EndTick();
+
+                if (monitor.IsLongTick(out long elapsedMs) && log.IsWarnEnabled)
+                    log.Warn($"Long {Instance.ServiceName}.{nameof(EndTickInternal)} for {effectListComponent.Owner.Name}({effectListComponent.Owner.ObjectID}) Time: {elapsedMs}ms");
+            }
+            catch (Exception e)
+            {
+                GameServiceUtils.HandleServiceException(e, Instance.ServiceName, effectListComponent, effectListComponent.Owner);
+            }
+        }
+
+        public static ECSGameEffect GetEffectOnTarget(GameLiving target, eEffect effectType, eSpellType spellType = eSpellType.Unknown)
+        {
+            if (spellType is eSpellType.Unknown)
             {
                 List<ECSGameEffect> effects = target.effectListComponent.GetEffects(effectType);
-                return effects.FirstOrDefault();
+                return effects.Count > 0 ? effects[0] : null;
             }
             else
                 return GetSpellEffectOnTarget(target, effectType, spellType);
         }
 
-        public static ECSGameSpellEffect GetSpellEffectOnTarget(GameLiving target, eEffect effectType, eSpellType spellType)
+        public static ECSGameSpellEffect GetSpellEffectOnTarget(GameLiving target, eEffect effectType, eSpellType spellType = eSpellType.Unknown)
         {
             List<ECSGameSpellEffect> effects = target.effectListComponent.GetSpellEffects(effectType);
-            return effects.FirstOrDefault(e => e.SpellHandler.Spell.SpellType == spellType);
+
+            foreach (ECSGameSpellEffect effect in effects)
+            {
+                if (spellType is eSpellType.Unknown || effect.SpellHandler.Spell.SpellType == spellType)
+                    return effect;
+            }
+
+            return null;
         }
 
         public static ECSGameAbilityEffect GetAbilityEffectOnTarget(GameLiving target, eEffect effectType)
         {
             List<ECSGameAbilityEffect> effects = target.effectListComponent.GetAbilityEffects(effectType);
-            return effects.FirstOrDefault();
+            return effects.Count > 0 ? effects[0] : null;
         }
 
         public static ECSImmunityEffect GetImmunityEffectOnTarget(GameLiving target, eEffect effectType)
         {
             List<ECSGameEffect> effects = target.effectListComponent.GetEffects(effectType);
-            return effects.FirstOrDefault(e => e is ECSImmunityEffect) as ECSImmunityEffect;
+
+            foreach (ECSGameEffect effect in effects)
+            {
+                if (effect is ECSImmunityEffect immunity)
+                    return immunity;
+            }
+
+            return null;
         }
 
         public static ECSPulseEffect GetPulseEffectOnTarget(GameLiving target, Spell spell)
         {
             List<ECSPulseEffect> effects = target.effectListComponent.GetPulseEffects();
-            return effects?.FirstOrDefault(e => e.SpellHandler.Spell == spell);
+
+            foreach (ECSPulseEffect effect in effects)
+            {
+                if (effect.SpellHandler.Spell == spell)
+                    return effect;
+            }
+
+            return null;
         }
 
         public static bool TryCancelFirstEffectOfTypeOnTarget(GameLiving target, eEffect effectType)
@@ -110,7 +148,7 @@ namespace DOL.GS
             if (effectToCancel == null)
                 return false;
 
-            return effectToCancel.Stop();
+            return effectToCancel.End();
         }
     }
 }

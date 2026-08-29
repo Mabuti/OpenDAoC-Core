@@ -13,13 +13,16 @@ namespace DOL.GS
     {
         private static readonly Logging.Logger log = Logging.LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
 
-        public const long COST_RE_EMBLEM = 1000000; // 200 gold.
+        public const long COST_RE_EMBLEM = 2000000; // 200 gold.
 
         private static readonly Lock _lock = new();
         private static readonly Dictionary<string, Guild> _nameToGuilds = new();
         private static readonly Dictionary<string, Guild> _idToGuild = new();
         private static readonly Dictionary<Guild, Dictionary<string, GuildMemberView>> _guildMemberViews = new();
         private static int _lastID;
+
+        // Used by the hack to make pets untargetable with tab on a PvP server. Effectively creates a dummy guild to get a unique ID.
+        public static Guild DummyGuild { get; private set; }
 
         public static void AddPlayerToGuildMemberViews(GamePlayer player)
         {
@@ -31,14 +34,16 @@ namespace DOL.GS
                 if (!_guildMemberViews.TryGetValue(player.Guild, out Dictionary<string, GuildMemberView> value))
                     return;
 
-                GuildMemberView member = new(player.InternalID,
+                GuildMemberView member = new(
+                    player.InternalID,
                     player.Name,
                     player.Level.ToString(),
                     player.CharacterClass.ID.ToString(),
                     player.GuildRank.RankLevel.ToString(),
                     player.Group != null ? player.Group.MemberCount.ToString() : "1",
                     player.CurrentZone.Description,
-                    player.GuildNote);
+                    player.GuildNote,
+                    player.GuildName);
                 value[player.InternalID] = member;
             }
         }
@@ -64,7 +69,7 @@ namespace DOL.GS
 
             lock (_lock)
             {
-                return !_guildMemberViews.TryGetValue(guild, out Dictionary<string, GuildMemberView> value) ?  null :  new(value);
+                return !_guildMemberViews.TryGetValue(guild, out Dictionary<string, GuildMemberView> value) ?  null : new(value);
             }
         }
 
@@ -217,19 +222,13 @@ namespace DOL.GS
                 {
                     player.RemoveMoney(COST_RE_EMBLEM, null);
                     InventoryLogging.LogInventoryAction(player, $"(GUILD;{guild.Name})", eInventoryActionType.Other, COST_RE_EMBLEM);
+                }
 
-                    // Update guild house emblem.
-                    if (guild.GuildOwnsHouse && guild.GuildHouseNumber > 0)
-                    {
-                        House guildHouse = HouseMgr.GetHouse(guild.GuildHouseNumber);
-
-                        if (guildHouse != null)
-                        {
-                            guildHouse.Emblem = guild.Emblem;
-                            guildHouse.SaveIntoDatabase();
-                            guildHouse.SendUpdate();
-                        }
-                    }
+                // Update guild house emblem.
+                if (guild.GuildOwnsHouse && guild.GuildHouseNumber > 0)
+                {
+                    House guildHouse = HouseMgr.GetHouse(guild.GuildHouseNumber);
+                    guildHouse?.SetEmblem(guild.Emblem);
                 }
 
                 // Update the guild emblem of every personal house.
@@ -261,9 +260,7 @@ namespace DOL.GS
             if (personalHouse == null || personalHouse.Emblem == newEmblem)
                 return;
 
-            personalHouse.Emblem = newEmblem;
-            personalHouse.SaveIntoDatabase();
-            personalHouse.SendUpdate();
+            personalHouse.SetEmblem(newEmblem);
         }
 
         public static Guild GetGuildByName(string guildName)
@@ -336,6 +333,26 @@ namespace DOL.GS
                         guild = new Guild(DOLDB<DbGuild>.SelectObjects(DB.Column("GuildID").IsEqualTo(dbGuild.GuildID)).FirstOrDefault());
                     }
 
+                    // Ensure guild houses have the correct emblem.
+                    House guildHouse = HouseMgr.GetHouse(guild.GuildHouseNumber);
+
+                    if (guildHouse != null)
+                    {
+                        int houseEmblem = guildHouse.Emblem;
+                        int guildEmblem = guild.Emblem;
+
+                        if (houseEmblem != guildEmblem)
+                        {
+                            if (log.IsWarnEnabled)
+                            {
+                                log.Warn($"Guild house emblem for '{guild.Name}' was incorrect. Fixing it. " +
+                                    $"(Previous: {houseEmblem}) (New: {guildEmblem}) (House: {guildHouse.HouseNumber})");
+                            }
+
+                            guildHouse.SetEmblem(houseEmblem);
+                        }
+                    }
+
                     AddGuild(guild);
 
                     static void RepairRanks(Guild guild)
@@ -368,6 +385,9 @@ namespace DOL.GS
                         }
                     }
                 }
+
+                if (GameServer.Instance.Configuration.ServerType is EGameServerType.GST_PvP)
+                    DummyGuild = GetGuildByName("DummyGuildToMakePetsUntargetable") ?? CreateGuild(0, "DummyGuildToMakePetsUntargetable");
             }
 
             static void LoadAlliances()
@@ -384,7 +404,7 @@ namespace DOL.GS
                         foreach (DbGuild dbGuild in dbAlliance.DBguilds)
                         {
                             Guild guild = GetGuildByName(dbGuild.GuildName);
-                            alliance.Guilds.Add(guild);
+                            alliance.AddGuildOnLoad(guild);
                             guild.alliance = alliance;
                         }
                     }
@@ -432,14 +452,16 @@ namespace DOL.GS
 
             foreach (DbCoreCharacter character in characters)
             {
-                GuildMemberView member = new(character.ObjectId,
+                GuildMemberView member = new(
+                    character.ObjectId,
                     character.Name,
                     character.Level.ToString(),
                     character.Class.ToString(),
                     character.GuildRank.ToString(),
                     "0",
                     character.LastPlayed.ToShortDateString(),
-                    character.GuildNote);
+                    character.GuildNote,
+                    null);
 
                 guildMemberViews.Add(character.ObjectId, member);
             }
@@ -528,23 +550,34 @@ namespace DOL.GS
             public string Level { get; set; }
             public string ClassID { get; set; }
             public string Rank { get; set; }
-            public string GroupSize { get; set; } = "0";
+            public string GroupSize { get; set; }
             public string ZoneOrOnline { get; set; }
-            public string Note { get; set; } = string.Empty;
+            public string Note { get; set; }
+            public string Guild { get; }
 
             public string this[eSocialWindowSortColumn i] => i switch
             {
                 eSocialWindowSortColumn.NAME => Name,
-                eSocialWindowSortColumn.CLASS_ID => ClassID,
-                eSocialWindowSortColumn.GROUP => GroupSize,
                 eSocialWindowSortColumn.LEVEL => Level,
-                eSocialWindowSortColumn.NOTE => Note,
+                eSocialWindowSortColumn.CLASS_ID => ClassID,
                 eSocialWindowSortColumn.RANK => Rank,
+                eSocialWindowSortColumn.GROUP => GroupSize,
                 eSocialWindowSortColumn.ZONE_OR_ONLINE => ZoneOrOnline,
-                _ => string.Empty,
+                eSocialWindowSortColumn.NOTE => Note,
+                eSocialWindowSortColumn.GUILD => Guild,
+                _ => string.Empty
             };
 
-            public GuildMemberView(string internalID, string name, string level, string classID, string rank, string group, string zoneOrOnline, string note)
+            public GuildMemberView(
+                string internalID,
+                string name,
+                string level,
+                string classID,
+                string rank,
+                string group,
+                string zoneOrOnline,
+                string note,
+                string guild)
             {
                 InternalID = internalID;
                 Name = name;
@@ -554,23 +587,14 @@ namespace DOL.GS
                 GroupSize = group;
                 ZoneOrOnline = zoneOrOnline;
                 Note = note;
+                Guild = string.IsNullOrEmpty(guild) ? "(Unknown)" : guild;
             }
 
-            public GuildMemberView(GamePlayer player)
+            public string ToString(int position, int guildPop, eSocialWindowTab tab)
             {
-                InternalID = player.InternalID;
-                Name = player.Name;
-                Level = player.Level.ToString();
-                ClassID = player.CharacterClass.ID.ToString();
-                Rank = player.GuildRank.RankLevel.ToString();
-                GroupSize = player.Group == null ? "1" : "2";
-                ZoneOrOnline = player.CurrentZone.ToString();
-                Note = player.GuildNote;
-            }
+                if (tab is eSocialWindowTab.ALLIANCE)
+                    return $"A,{position},{guildPop},{Name},{Level},{ClassID},{Rank},{GroupSize},\"{ZoneOrOnline}\",\"{Guild}\"";
 
-            public string ToString(int position, int guildPop)
-            {
-                // This is used to send the correct information to the client social window.
                 return $"E,{position},{guildPop},{Name},{Level},{ClassID},{Rank},{GroupSize},\"{ZoneOrOnline}\",\"{Note}\"";
             }
 
@@ -580,8 +604,8 @@ namespace DOL.GS
                 ClassID = player.CharacterClass.ID.ToString();
                 Rank = player.GuildRank.RankLevel.ToString();
                 GroupSize = player.Group == null ? "1" : "2";
-                Note = player.GuildNote;
                 ZoneOrOnline = player.CurrentZone.Description;
+                Note = player.GuildNote;
             }
 
             public enum eSocialWindowSort : int
@@ -599,7 +623,9 @@ namespace DOL.GS
                 ZONE_OR_ONLINE_DESC = 6,
                 ZONE_OR_ONLINE_ASC = -6,
                 NOTE_DESC = 7,
-                NOTE_ASC = -7
+                NOTE_ASC = -7,
+                GUILD_DESC = 8,
+                GUILD_ASC = -8
             }
 
             public enum eSocialWindowSortColumn : int
@@ -610,7 +636,14 @@ namespace DOL.GS
                 RANK = 3,
                 GROUP = 4,
                 ZONE_OR_ONLINE = 5,
-                NOTE = 6
+                NOTE = 6,
+                GUILD = 7
+            }
+
+            public enum eSocialWindowTab
+            {
+                GUILD,
+                ALLIANCE
             }
         }
     }

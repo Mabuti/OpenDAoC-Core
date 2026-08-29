@@ -14,9 +14,26 @@ namespace DOL.GS
     public class ApocInitializator : GameNPC
     {
         public ApocInitializator() : base() { }
-        public static bool spawn_apoc = false;
-        public static bool start_respawn_check = false;
-        public static bool StartEncounter = false;
+        public bool start_respawn_check = false;
+        public bool FamesIsUp = true;
+        public bool BellumUP = true;
+        public bool MorbusUP = true;
+        public bool FunusUp = true;
+        public bool ApocUP = true;
+        public bool StartedFames = false;
+        public bool StartedBellum = false;
+        public bool StartedMorbus = false;
+        public bool StartedFunus = false;
+        public bool StartedApoc = false;
+        public static ApocInitializator GetInitializator(ushort regionID)
+        {
+            foreach (GameNPC npc in WorldMgr.GetNPCsFromRegion(regionID))
+            {
+                if (npc is ApocInitializator initializator)
+                    return initializator;
+            }
+            return null;
+        }
 
         #region Timer cycling and repeatable dostuff
         public void StartTimer()
@@ -91,7 +108,6 @@ namespace DOL.GS
             new ECSGameTimer(this, new ECSGameTimer.ECSTimerCallback(Message_timer8), 5000);//60s before starting
             return 0;
         }
-        public static bool FamesWaitForText = false;
         public int Message_timer8(ECSGameTimer timer)
         {
             BroadcastMessage(String.Format("Fames asks, 'You, "+RandomTarget.Name+", do you come to challenge fate? Come to me with your answer so that I may see the answer" +
@@ -105,6 +121,7 @@ namespace DOL.GS
         public int SpawnHorsemanFames(ECSGameTimer timer)
         {
             Fames Add = new Fames();
+            Add.Initializator = this;
             Add.X = X;
             Add.Y = Y;
             Add.Z = Z;
@@ -112,11 +129,10 @@ namespace DOL.GS
             Add.Flags = eFlags.PEACE;
             Add.Heading = 4072;
             Add.AddToWorld();
-            FamesWaitForText = true;
             new ECSGameTimer(this, new ECSGameTimer.ECSTimerCallback(OtherPlayersCanInteract), 60000);
             return 0;
         }
-        public static bool OthersCanInteract = false;
+        public bool OthersCanInteract = false;
         private int OtherPlayersCanInteract(ECSGameTimer timer)
         {          
             OthersCanInteract = true;
@@ -126,15 +142,14 @@ namespace DOL.GS
         #endregion
 
         #region Pick Random Player, PlayerEnter
-        private bool CheckNullPlayer = false;
-        public static GamePlayer randomtarget=null;
-        public static GamePlayer RandomTarget
+        public GamePlayer randomtarget=null;
+        public GamePlayer RandomTarget
         {
             get { return randomtarget; }
             set { randomtarget = value; }
         }
         List<GamePlayer> PlayersInRoom = new List<GamePlayer>();
-        public static bool PickedTarget = false;
+        public bool PickedTarget = false;
         public void PlayerEnter()
         {
             foreach (GamePlayer player in GetPlayersInRadius(1500))
@@ -165,7 +180,7 @@ namespace DOL.GS
         {
             if (IsAlive)
             {
-                if (!Fames.FamesIsUp && !Bellum.BellumUP && !Morbus.MorbusUP && !Funus.FunusUp && !Apocalypse.ApocUP && !start_respawn_check)
+                if (!FamesIsUp && !BellumUP && !MorbusUP && !FunusUp && !ApocUP && !start_respawn_check)
                 {
                     RandomTarget = null;//reset picked player
                     PlayersInRoom.Clear();
@@ -239,7 +254,7 @@ namespace DOL.GS
 
             if(this.CurrentRegionID == 60)//caer sidi
             {
-                if(FamesBrain.StartedFames==true || BellumBrain.StartedBellum==true || MorbusBrain.StartedMorbus==true || FunusBrain.StartedFunus==true || ApocalypseBrain.StartedApoc==true)
+                if(StartedFames==true || StartedBellum==true || StartedMorbus==true || StartedFunus==true || StartedApoc==true)
                 {
                     foreach (GamePlayer player in GetPlayersInRadius(1500))
                     {
@@ -292,13 +307,18 @@ namespace DOL.GS
     public class Fames : GameEpicBoss
     {
         public Fames() : base() { }
+        private ApocInitializator _initializator;
+        public ApocInitializator Initializator
+        {
+            get => _initializator ??= ApocInitializator.GetInitializator(CurrentRegionID);
+            set => _initializator = value;
+        }
         public int StartFamesTimer(ECSGameTimer timer)
         {
             Flags = 0;
             return 0;
         }
-        public static bool CanInteract = false;
-        public static bool FamesIsUp = true;
+        public bool CanInteract = false;
         public override int GetResist(eDamageType damageType)
         {
             switch (damageType)
@@ -312,7 +332,7 @@ namespace DOL.GS
         public override bool Interact(GamePlayer player)
         {
             if (!base.Interact(player)) return false;
-            GamePlayer player2 = ApocInitializator.RandomTarget;
+            GamePlayer player2 = Initializator?.RandomTarget;
             if (CanInteract == false)
             {
                 if (player == player2)
@@ -324,7 +344,7 @@ namespace DOL.GS
                         "Say [yes] and prepare yourselves.", eChatType.CT_Say, eChatLoc.CL_PopupWindow);
                 }
             }
-            if (ApocInitializator.OthersCanInteract == true)
+            if (Initializator != null && Initializator.OthersCanInteract == true)
             {
                 if (player != null)
                 {
@@ -344,7 +364,7 @@ namespace DOL.GS
             GamePlayer t = (GamePlayer)source;
             if (CanInteract == false)
             {            
-                if (t == ApocInitializator.RandomTarget || ApocInitializator.OthersCanInteract == true)
+                if (Initializator != null && (t == Initializator.RandomTarget || Initializator.OthersCanInteract == true))
                 {
                     TurnTo(t.X, t.Y);
                     switch (str.ToLower())
@@ -406,22 +426,26 @@ namespace DOL.GS
             }
         }
         private bool prepareBellum = false;
-        public override void Die(GameObject killer)//on kill generate orbs
+        public override void ProcessDeath(GameObject killer)//on kill generate orbs
         {
-            
+
             if(!prepareBellum)
-            { 
+            {
                 BroadcastMessage(String.Format("Bellum says, 'Prepare yourselves for war. One minute, you are granted.'"));
                 new ECSGameTimer(this, new ECSGameTimer.ECSTimerCallback(SpawnHorsemanBellum), 60000);//60s before starting
                 prepareBellum = true;
             }
-            FamesIsUp = false;
-            FamesBrain.StartedFames = false;
-            base.Die(killer);
+            if (Initializator != null)
+            {
+                Initializator.FamesIsUp = false;
+                Initializator.StartedFames = false;
+            }
+            base.ProcessDeath(killer);
         }
         public int SpawnHorsemanBellum(ECSGameTimer timer)
         {
             Bellum Add = new Bellum();
+            Add.Initializator = Initializator;
             Add.X = 29468;
             Add.Y = 25235;
             Add.Z = 19490;
@@ -448,11 +472,13 @@ namespace DOL.GS
             Faction = FactionMgr.GetFactionByID(64);
             BodyType = 11;
             Realm = eRealm.None;
-            FamesBrain.spawn_fate = false;
             CanInteract = false;
-            FamesBrain.StartedFames = false;
-            FamesIsUp = true;
             prepareBellum = false;
+            if (Initializator != null)
+            {
+                Initializator.StartedFames = false;
+                Initializator.FamesIsUp = true;
+            }
 
             FamesBrain adds = new FamesBrain();
             SetOwnBrain(adds);
@@ -473,9 +499,9 @@ namespace DOL.AI.Brain
             AggroRange = 600;
             ThinkInterval = 2000;
         }
-        public static bool BafMobs = false;
-        public static bool spawn_fate = false;
-        public static bool StartedFames = false;
+        public bool BafMobs = false;
+        public bool spawn_fate = false;
+        private ApocInitializator Initializator => (Body as Fames)?.Initializator;
         public override void Think()
         {
             if (!CheckProximityAggro())
@@ -484,7 +510,8 @@ namespace DOL.AI.Brain
                 FSM.SetCurrentState(eFSMStateType.RETURN_TO_SPAWN);
                 Body.Health = Body.MaxHealth;
                 BafMobs = false;
-                StartedFames = false;
+                if (Initializator != null)
+                    Initializator.StartedFames = false;
             }
             if (Body.IsOutOfTetherRange)
             {
@@ -497,7 +524,8 @@ namespace DOL.AI.Brain
             }
             if (Body.InCombat || HasAggro || Body.attackComponent.AttackState == true)//bring mobs from rooms if mobs got set PackageID="FamesBaf"
             {
-                StartedFames = true;
+                if (Initializator != null)
+                    Initializator.StartedFames = true;
                 if (spawn_fate == false)
                 {
                     SpawnFateBearer();
@@ -546,6 +574,12 @@ namespace DOL.GS
     public class Bellum : GameEpicBoss
     {
         public Bellum() : base() { }
+        private ApocInitializator _initializator;
+        public ApocInitializator Initializator
+        {
+            get => _initializator ??= ApocInitializator.GetInitializator(CurrentRegionID);
+            set => _initializator = value;
+        }
         public override bool HasAbility(string keyName)
         {
             if (IsAlive && keyName == GS.Abilities.CCImmunity)
@@ -568,7 +602,6 @@ namespace DOL.GS
         {
             get { return 100000; }
         }
-        public static bool BellumUP = true;
         public void BroadcastMessage(String message)
         {
             foreach (GamePlayer player in this.GetPlayersInRadius(WorldMgr.VISIBILITY_DISTANCE))
@@ -577,7 +610,7 @@ namespace DOL.GS
             }
         }
         private bool prepareMorbus = false;
-        public override void Die(GameObject killer)//on kill generate orbs
+        public override void ProcessDeath(GameObject killer)//on kill generate orbs
         {
             if (!prepareMorbus)
             {
@@ -600,14 +633,18 @@ namespace DOL.GS
                 }
             }
             
-            BellumBrain.StartedBellum = false;
-            BellumUP = false;
+            if (Initializator != null)
+            {
+                Initializator.StartedBellum = false;
+                Initializator.BellumUP = false;
+            }
             spawn_fate2 = false;
-            base.Die(killer);
+            base.ProcessDeath(killer);
         }
         public int SpawnHorsemanMorbus(ECSGameTimer timer)
         {
             Morbus Add = new Morbus();
+            Add.Initializator = Initializator;
             Add.X = 29467;
             Add.Y = 25235;
             Add.Z = 19490;
@@ -616,7 +653,7 @@ namespace DOL.GS
             Add.AddToWorld();
             return 0;
         }
-        public static bool spawn_fate2 = false;
+        public bool spawn_fate2 = false;
         public void SpawnFateBearer()
         {
             INpcTemplate npcTemplate = NpcTemplateMgr.GetTemplate(60160741);
@@ -650,10 +687,12 @@ namespace DOL.GS
             Faction = FactionMgr.GetFactionByID(64);
             BodyType = 11;
             Realm = eRealm.None;
-            BellumBrain.StartedBellum = false;
-            BellumBrain.SpawnWeapons = false;
-            BellumUP = true;
             prepareMorbus = false;
+            if (Initializator != null)
+            {
+                Initializator.StartedBellum = false;
+                Initializator.BellumUP = true;
+            }
 
             AbilityBonus[eProperty.Resist_Body] = -10;
             AbilityBonus[eProperty.Resist_Heat] = -10;
@@ -689,8 +728,8 @@ namespace DOL.AI.Brain
             AggroRange = 1200;
             ThinkInterval = 2000;
         }
-        public static bool StartedBellum= false;
-        public static bool SpawnWeapons = false;
+        public bool SpawnWeapons = false;
+        private ApocInitializator Initializator => (Body as Bellum)?.Initializator;
         private bool RemoveAdds = false;
         public override void Think()
         {
@@ -699,7 +738,8 @@ namespace DOL.AI.Brain
                 //set state to RETURN TO SPAWN
                 FSM.SetCurrentState(eFSMStateType.RETURN_TO_SPAWN);
                 Body.Health = Body.MaxHealth;
-                StartedBellum = false;
+                if (Initializator != null)
+                    Initializator.StartedBellum = false;
                 SpawnWeapons = false;
                 if (!RemoveAdds)
                 {
@@ -721,7 +761,8 @@ namespace DOL.AI.Brain
             }
             if (HasAggro && Body.TargetObject != null)//bring mobs from rooms if mobs got set PackageID="FamesBaf"
             {
-                StartedBellum = true;
+                if (Initializator != null)
+                    Initializator.StartedBellum = true;
                 RemoveAdds = false;
                 if(SpawnWeapons==false)
                 {
@@ -788,6 +829,7 @@ namespace DOL.GS
     public class WarIncarnateCrush : GameNPC
     {
         public WarIncarnateCrush() : base() { }
+        public bool spawn_copies = false;
 
         public override double GetArmorAF(eArmorSlot slot)
         {
@@ -852,7 +894,6 @@ namespace DOL.GS
             Realm = eRealm.None;
             WarIncarnateCrushBrain adds = new WarIncarnateCrushBrain();
             LoadedFromScript = true;
-            WarIncarnateCrushBrain.spawn_copies = false;
             SetOwnBrain(adds);
             base.AddToWorld();
             return true;
@@ -919,21 +960,21 @@ namespace DOL.AI.Brain
                 smb.AggroLevel = 100;
                 smb.AggroRange = 1000;
                 Add.AddBrain(smb);
+                Add.spawn_copies = true;
                 Add.AddToWorld();
                 WarIncarnateCrushBrain brain = (WarIncarnateCrushBrain)Add.Brain;
                 brain.AddToAggroList(ptarget, 1);
                 Add.StartAttack(ptarget);
             }
         }
-        public static bool spawn_copies = false;
         public override void Think()
         {
             if (Body.IsAlive)
             {
-                if(spawn_copies==false)
+                if(Body is WarIncarnateCrush weapon && weapon.spawn_copies==false)
                 {
                     SpawnCrushWeapons();
-                    spawn_copies = true;
+                    weapon.spawn_copies = true;
                 }
             }
             base.Think();
@@ -948,6 +989,7 @@ namespace DOL.GS
     public class WarIncarnateSlash : GameNPC
     {
         public WarIncarnateSlash() : base() { }
+        public bool spawn_copies2 = false;
         public override double GetArmorAF(eArmorSlot slot)
         {
             return 200;
@@ -1020,7 +1062,6 @@ namespace DOL.GS
             Realm = eRealm.None;
             WarIncarnateSlashBrain adds = new WarIncarnateSlashBrain();
             LoadedFromScript = true;
-            WarIncarnateSlashBrain.spawn_copies2 = false;
             SetOwnBrain(adds);
             base.AddToWorld();
             return true;
@@ -1096,21 +1137,21 @@ namespace DOL.AI.Brain
                 smb.AggroLevel = 100;
                 smb.AggroRange = 1000;
                 Add.AddBrain(smb);
+                Add.spawn_copies2 = true;
                 Add.AddToWorld();
                 WarIncarnateSlashBrain brain = (WarIncarnateSlashBrain)Add.Brain;
                 brain.AddToAggroList(ptarget, 1);
                 Add.StartAttack(ptarget);
             }
         }
-        public static bool spawn_copies2 = false;
         public override void Think()
         {
             if (Body.IsAlive)
             {
-                if (spawn_copies2 == false)
+                if (Body is WarIncarnateSlash weapon && weapon.spawn_copies2 == false)
                 {
                     SpawnSlashWeapons();
-                    spawn_copies2 = true;
+                    weapon.spawn_copies2 = true;
                 }
             }
             base.Think();
@@ -1125,6 +1166,7 @@ namespace DOL.GS
     public class WarIncarnateThrust : GameNPC
     {
         public WarIncarnateThrust() : base() { }
+        public bool spawn_copies3 = false;
         public override double GetArmorAF(eArmorSlot slot)
         {
             return 200;
@@ -1188,7 +1230,6 @@ namespace DOL.GS
             Realm = eRealm.None;
             WarIncarnateThrustBrain adds = new WarIncarnateThrustBrain();
             LoadedFromScript = true;
-            WarIncarnateThrustBrain.spawn_copies3 = false;
             SetOwnBrain(adds);
             base.AddToWorld();
             return true;
@@ -1256,21 +1297,21 @@ namespace DOL.AI.Brain
                 smb.AggroLevel = 100;
                 smb.AggroRange = 1000;
                 Add.AddBrain(smb);
+                Add.spawn_copies3 = true;
                 Add.AddToWorld();
                 WarIncarnateThrustBrain brain = (WarIncarnateThrustBrain)Add.Brain;
                 brain.AddToAggroList(ptarget, 1);
                 Add.StartAttack(ptarget);
             }
         }
-        public static bool spawn_copies3 = false;
         public override void Think()
         {
             if (Body.IsAlive)
             {
-                if (spawn_copies3 == false)
+                if (Body is WarIncarnateThrust weapon && weapon.spawn_copies3 == false)
                 {
                     SpawnThrustWeapons();
-                    spawn_copies3 = true;
+                    weapon.spawn_copies3 = true;
                 }
             }
             base.Think();
@@ -1286,6 +1327,12 @@ namespace DOL.GS
     public class Morbus : GameEpicBoss
     {
         public Morbus() : base() { }
+        private ApocInitializator _initializator;
+        public ApocInitializator Initializator
+        {
+            get => _initializator ??= ApocInitializator.GetInitializator(CurrentRegionID);
+            set => _initializator = value;
+        }
         public override bool HasAbility(string keyName)
         {
             if (IsAlive && keyName == GS.Abilities.CCImmunity)
@@ -1295,7 +1342,7 @@ namespace DOL.GS
         }
         public override void ReturnToSpawnPoint(short speed)
         {
-            if (MorbusBrain.IsBug)
+            if (Brain is MorbusBrain morbusBrain && morbusBrain.IsBug)
                 return;
 
             base.ReturnToSpawnPoint(speed);
@@ -1304,7 +1351,7 @@ namespace DOL.GS
         {
             if (source is GamePlayer || source is GameSummonedPet)
             {
-                if (Morbus_Swarm_count > 0)
+                if (AliveSwarmCount > 0)
                 {
                     if (damageType == eDamageType.Body || damageType == eDamageType.Cold || damageType == eDamageType.Energy || damageType == eDamageType.Heat
                         || damageType == eDamageType.Matter || damageType == eDamageType.Spirit || damageType == eDamageType.Crush || damageType == eDamageType.Thrust
@@ -1343,7 +1390,6 @@ namespace DOL.GS
         {
             get { return 100000; }
         }
-        public static bool MorbusUP = true;
         private bool prepareFunus = false;
         public void BroadcastMessage(String message)
         {
@@ -1352,7 +1398,7 @@ namespace DOL.GS
                 player.Out.SendMessage(message, eChatType.CT_Broadcast, eChatLoc.CL_SystemWindow);
             }
         }
-        public override void Die(GameObject killer)//on kill generate orbs
+        public override void ProcessDeath(GameObject killer)//on kill generate orbs
         {
             if (!prepareFunus)
             {
@@ -1364,14 +1410,18 @@ namespace DOL.GS
                 new ECSGameTimer(this, new ECSGameTimer.ECSTimerCallback(SpawnHorsemanFunus), 60000);//60s before starting
                 prepareFunus = true;
             }
-            MorbusBrain.StartedMorbus = false;
+            if (Initializator != null)
+            {
+                Initializator.StartedMorbus = false;
+                Initializator.MorbusUP = false;
+            }
             spawn_fate3 = false;
-            MorbusUP = false;
-            base.Die(killer);
+            base.ProcessDeath(killer);
         }
         public int SpawnHorsemanFunus(ECSGameTimer timer)
         {
             Funus Add = new Funus();//inside controller
+            Add.Initializator = Initializator;
             Add.X = 29467;
             Add.Y = 25235;
             Add.Z = 19490;
@@ -1380,8 +1430,23 @@ namespace DOL.GS
             Add.AddToWorld();
             return 0;
         }
-        public static bool spawn_fate3 = false;
-        public static int Morbus_Swarm_count = 0;
+        public bool spawn_fate3 = false;
+        public readonly List<GameNPC> Swarm = new List<GameNPC>();
+        public int AliveSwarmCount
+        {
+            get
+            {
+                int count = 0;
+
+                foreach (GameNPC npc in Swarm)
+                {
+                    if (npc != null && npc.IsAlive && npc.ObjectState is eObjectState.Active)
+                        count++;
+                }
+
+                return count;
+            }
+        }
         public void SpawnFateBearer()
         {
             INpcTemplate npcTemplate = NpcTemplateMgr.GetTemplate(60160741);
@@ -1414,13 +1479,12 @@ namespace DOL.GS
             Faction = FactionMgr.GetFactionByID(64);
             BodyType = 11;
             Realm = eRealm.None;
-            MorbusBrain.StartedMorbus = false;
-            MorbusBrain.BafMobs3 = false;
-            MorbusBrain.spawn_swarm = false;
-            MorbusBrain.message_warning1 = false;
-            MorbusBrain.IsBug = false;
-            MorbusUP = true;
             prepareFunus = false;
+            if (Initializator != null)
+            {
+                Initializator.StartedMorbus = false;
+                Initializator.MorbusUP = true;
+            }
 
             AbilityBonus[eProperty.Resist_Body] = 26;
             AbilityBonus[eProperty.Resist_Heat] = 26;
@@ -1457,11 +1521,11 @@ namespace DOL.AI.Brain
             AggroRange = 1200;
             ThinkInterval = 2000;
         }
-        public static bool BafMobs3 = false;
-        public static bool spawn_swarm = false;
-        public static bool message_warning1 = false;
-        public static bool IsBug = false;
-        public static bool StartedMorbus = false;
+        public bool BafMobs3 = false;
+        public bool spawn_swarm = false;
+        public bool message_warning1 = false;
+        public bool IsBug = false;
+        private ApocInitializator Initializator => (Body as Morbus)?.Initializator;
         private bool RemoveAdds = false;
         public override void AttackMostWanted()
         {
@@ -1495,7 +1559,8 @@ namespace DOL.AI.Brain
                 //set state to RETURN TO SPAWN
                 FSM.SetCurrentState(eFSMStateType.RETURN_TO_SPAWN);
                 Body.Health = Body.MaxHealth;
-                StartedMorbus = false;
+                if (Initializator != null)
+                    Initializator.StartedMorbus = false;
                 BafMobs3 = false;
                 message_warning1 = false;
                 if (!RemoveAdds)
@@ -1507,12 +1572,18 @@ namespace DOL.AI.Brain
                             if (npc.IsAlive)
                             {
                                 if (npc.PackageID == "MorbusBaf" && npc.Brain is MorbusSwarmBrain)
-                                {
                                     npc.RemoveFromWorld();
-                                    Morbus.Morbus_Swarm_count = 0;
-                                }
                             }
                         }
+                    }
+                    if (Body is Morbus morbusToClear)
+                    {
+                        foreach (GameNPC npc in morbusToClear.Swarm)
+                        {
+                            if (npc != null && npc.ObjectState is GameObject.eObjectState.Active)
+                                npc.RemoveFromWorld();
+                        }
+                        morbusToClear.Swarm.Clear();
                     }
                     RemoveAdds = true;
                 }
@@ -1536,8 +1607,9 @@ namespace DOL.AI.Brain
 
             if (Body.InCombat || HasAggro || Body.attackComponent.AttackState == true)
             {
-                StartedMorbus = true;
-                if(Morbus.Morbus_Swarm_count > 0)
+                if (Initializator != null)
+                    Initializator.StartedMorbus = true;
+                if(Body is Morbus morbus && morbus.AliveSwarmCount > 0)
                 {
                     Body.Model = 771;
                     Body.Size = 50;
@@ -1570,7 +1642,7 @@ namespace DOL.AI.Brain
                         }
                     }
                 }
-                if(Morbus.Morbus_Swarm_count == 0)
+                if(Body is Morbus morbus2 && morbus2.AliveSwarmCount == 0)
                 {
                     if (spawn_swarm == false)
                     {
@@ -1596,6 +1668,9 @@ namespace DOL.AI.Brain
         {
             if (Body.IsAlive)
             {
+                if (Body is Morbus morbusToPrune)
+                    morbusToPrune.Swarm.RemoveAll(npc => npc == null || !npc.IsAlive || npc.ObjectState is not GameObject.eObjectState.Active);
+
                 for (int i = 0; i < Util.Random(6,10); i++)
                 {
                     MorbusSwarm Add = new MorbusSwarm();
@@ -1607,7 +1682,8 @@ namespace DOL.AI.Brain
                     Add.RespawnInterval = -1;
                     Add.PackageID = "MorbusBaf";
                     Add.AddToWorld();
-                    ++Morbus.Morbus_Swarm_count;
+                    if (Body is Morbus morbus)
+                        morbus.Swarm.Add(Add);
                 }
             }
             spawn_swarm=false;
@@ -1637,12 +1713,6 @@ namespace DOL.GS
         {
             get { return 15000; }
         }
-        public override void Die(GameObject killer)
-        {
-            --Morbus.Morbus_Swarm_count;
-            base.Die(killer);
-        }
-
         public override void SetStats(DbMob dbMob = null)
         {
             if (PackageID == "MorbusBaf")
@@ -1790,12 +1860,11 @@ namespace DOL.AI.Brain
                     spell.Radius = 350;
                     spell.Duration = 120;
                     spell.SpellID = 11737;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = "Disease";
                     spell.Uninterruptible = true;
                     spell.DamageType = (int)eDamageType.Body; //Energy DMG Type
                     m_black_plague = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_black_plague);
                 }
                 return m_black_plague;
             }
@@ -1812,6 +1881,12 @@ namespace DOL.GS
     public class Funus : GameEpicBoss
     {
         public Funus() : base() { }
+        private ApocInitializator _initializator;
+        public ApocInitializator Initializator
+        {
+            get => _initializator ??= ApocInitializator.GetInitializator(CurrentRegionID);
+            set => _initializator = value;
+        }
         //Funus only take all dmg from clerics melee/magic/dmgadd
         //and some restricted dmg from other classes:
         //-from mercenary by bow
@@ -1878,9 +1953,8 @@ namespace DOL.GS
         {
             get { return 50000; }
         }
-        public static bool FunusUp = true;
         private bool prepareApoc = false;
-        public override void Die(GameObject killer)//on kill generate orbs
+        public override void ProcessDeath(GameObject killer)//on kill generate orbs
         {
             if (!prepareApoc)
             {
@@ -1889,13 +1963,17 @@ namespace DOL.GS
                 prepareApoc = true;
             }
             spawn_fate4 = false;
-            FunusBrain.StartedFunus = false;
-            FunusUp = false;
-            base.Die(killer);
+            if (Initializator != null)
+            {
+                Initializator.StartedFunus = false;
+                Initializator.FunusUp = false;
+            }
+            base.ProcessDeath(killer);
         }
         public int SpawnApoc(ECSGameTimer timer)
         {
             Apocalypse Add = new Apocalypse();
+            Add.Initializator = Initializator;
             Add.X = 29467;
             Add.Y = 25235;
             Add.Z = 19490;
@@ -1920,7 +1998,7 @@ namespace DOL.GS
             Add.AddToWorld();
         }
 
-        public static bool spawn_fate4 = false;
+        public bool spawn_fate4 = false;
         public override bool AddToWorld()
         {
             Model = 911;
@@ -1938,10 +2016,12 @@ namespace DOL.GS
             Faction = FactionMgr.GetFactionByID(64);
             BodyType = 11;
             Realm = eRealm.None;
-            FunusBrain.StartedFunus = false;
-            FunusBrain.BafMobs4 = false;
-            FunusUp = true;
             prepareApoc = false;
+            if (Initializator != null)
+            {
+                Initializator.StartedFunus = false;
+                Initializator.FunusUp = true;
+            }
 
             AbilityBonus[eProperty.Resist_Body] = -25;
             AbilityBonus[eProperty.Resist_Heat] = -25;
@@ -1977,8 +2057,8 @@ namespace DOL.AI.Brain
             AggroRange = 1200;
             ThinkInterval = 2000;
         }
-        public static bool BafMobs4 = false;
-        public static bool StartedFunus = false;
+        public bool BafMobs4 = false;
+        private ApocInitializator Initializator => (Body as Funus)?.Initializator;
         public override void Think()
         {
             if (!CheckProximityAggro())
@@ -1986,7 +2066,8 @@ namespace DOL.AI.Brain
                 //set state to RETURN TO SPAWN
                 FSM.SetCurrentState(eFSMStateType.RETURN_TO_SPAWN);
                 Body.Health = Body.MaxHealth;
-                StartedFunus = false;
+                if (Initializator != null)
+                    Initializator.StartedFunus = false;
                 BafMobs4 = false;
             }
             if (Body.IsOutOfTetherRange)
@@ -2000,7 +2081,8 @@ namespace DOL.AI.Brain
             }
             if (Body.TargetObject != null && HasAggro)//bring mobs from rooms if mobs got set PackageID="FamesBaf"
             {
-                StartedFunus = true;
+                if (Initializator != null)
+                    Initializator.StartedFunus = true;
                 if (BafMobs4 == false)
                 {
                     foreach (GameNPC npc in WorldMgr.GetNPCsFromRegion(Body.CurrentRegionID))
@@ -2029,6 +2111,12 @@ namespace DOL.GS
     public class Apocalypse : GameEpicBoss
     {
         public Apocalypse() : base() { }
+        private ApocInitializator _initializator;
+        public ApocInitializator Initializator
+        {
+            get => _initializator ??= ApocInitializator.GetInitializator(CurrentRegionID);
+            set => _initializator = value;
+        }
         public void BroadcastMessage(String message)
         {
             foreach (GamePlayer player in GetPlayersInRadius(WorldMgr.VISIBILITY_DISTANCE))
@@ -2068,8 +2156,7 @@ namespace DOL.GS
         {
             get { return 300000; }
         }
-        public static bool ApocUP = true;
-        public override void Die(GameObject killer)//on kill generate orbs
+        public override void ProcessDeath(GameObject killer)//on kill generate orbs
         {
             foreach (GameNPC npc in GetNPCsInRadius(4000))
             {
@@ -2085,11 +2172,14 @@ namespace DOL.GS
             BroadcastMessage(String.Format("Apocalypse shouts, 'Your end is at hand!'"));
 
             AwardEpicEncounterKillPoint();
-           
-            ApocalypseBrain.StartedApoc = false;
-            ApocInitializator.start_respawn_check = false;
-            ApocUP = false;
-            base.Die(killer);
+
+            if (Initializator != null)
+            {
+                Initializator.StartedApoc = false;
+                Initializator.start_respawn_check = false;
+                Initializator.ApocUP = false;
+            }
+            base.ProcessDeath(killer);
         }      
         
         protected int AwardEpicEncounterKillPoint()
@@ -2124,17 +2214,11 @@ namespace DOL.GS
             LoadTemplate(npcTemplate);
             Faction = FactionMgr.GetFactionByID(64);
 
-            ApocalypseBrain.spawn_harbringers = false;
-            ApocalypseBrain.spawn_rain_of_fire = false;
-            ApocalypseBrain.apoc_fly_phase = false;
-            ApocalypseBrain.IsInFlyPhase = false;
-            ApocalypseBrain.fly_phase1 = false;
-            ApocalypseBrain.fly_phase2 = false;
-            ApocalypseBrain.ApocAggro = false;
-            ApocalypseBrain.pop_harbringers = false;
-            ApocalypseBrain.StartedApoc = false;
-            HarbringerOfFate.HarbringersCount = 0;
-            ApocUP = true;
+            if (Initializator != null)
+            {
+                Initializator.StartedApoc = false;
+                Initializator.ApocUP = true;
+            }
 
 
             foreach (GamePlayer player in ClientService.Instance.GetPlayersOfRegion(CurrentRegion))
@@ -2147,7 +2231,7 @@ namespace DOL.GS
             return true;
         }
 
-        public static int KilledEnemys = 0;
+        public int KilledEnemys = 0;
         public override void EnemyKilled(GameLiving enemy)
         {
             if(enemy is GamePlayer)
@@ -2158,7 +2242,7 @@ namespace DOL.GS
         }
         public override void StartAttack(GameObject target)
         {
-            if (ApocalypseBrain.IsInFlyPhase)
+            if (Brain is ApocalypseBrain apocBrain && apocBrain.IsInFlyPhase)
                 return;
             else
                 base.StartAttack(target);
@@ -2177,15 +2261,16 @@ namespace DOL.AI.Brain
             AggroRange = 1300;
             ThinkInterval = 2000;
         }
-        public static bool spawn_rain_of_fire = false;
-        public static bool apoc_fly_phase = false;
-        public static bool IsInFlyPhase = false;
-        public static bool fly_phase1 = false;
-        public static bool fly_phase2 = false;
-        public static bool ApocAggro = false;
-        public static bool pop_harbringers = false;
-        public static bool StartedApoc = false;
+        public bool spawn_rain_of_fire = false;
+        public bool apoc_fly_phase = false;
+        public bool IsInFlyPhase = false;
+        public bool fly_phase1 = false;
+        public bool fly_phase2 = false;
+        public bool ApocAggro = false;
+        public bool pop_harbringers = false;
+        private ApocInitializator Initializator => (Body as Apocalypse)?.Initializator;
         private bool RemoveAdds = false;
+        private int _harbringersCount = 0;
 
         public override void Think()
         {
@@ -2193,21 +2278,22 @@ namespace DOL.AI.Brain
             if (Body.InCombatInLast(60 * 1000) == false && this.Body.InCombatInLast(65 * 1000))
             {
                 Body.Health = Body.MaxHealth;
-                spawn_rain_of_fire = false;
-                spawn_harbringers = false;
-
                 apoc_fly_phase = false;
                 IsInFlyPhase = false;
                 fly_phase1 = false;
                 fly_phase2 = false;
                 ApocAggro = false;
                 pop_harbringers = false;
-                StartedApoc = false;
-                Apocalypse.KilledEnemys = 0;
-                HarbringerOfFate.HarbringersCount = 0;
+                if (Initializator != null)
+                    Initializator.StartedApoc = false;
+                if (Body is Apocalypse apoc)
+                    apoc.KilledEnemys = 0;
 
                 if (!RemoveAdds)
                 {
+                    spawn_rain_of_fire = false;
+                    spawn_harbringers = false;
+                    _harbringersCount = 0;
                     foreach (GameNPC npc in Body.GetNPCsInRadius(4000))
                     {
                         if (npc != null)
@@ -2227,7 +2313,8 @@ namespace DOL.AI.Brain
             #region Boss combat
             if (Body.IsAlive)//bring mobs from rooms if mobs got set PackageID="ApocBaf"
             {
-                StartedApoc = true;
+                if (Initializator != null)
+                    Initializator.StartedApoc = true;
                 if (HasAggro && Body.TargetObject != null)
                     RemoveAdds = false;
 
@@ -2238,7 +2325,7 @@ namespace DOL.AI.Brain
                     ClearAggroList();
                     if (!Body.IsWithinRadius(point1, 100))
                     {
-                        Body.WalkTo(point1, 200);
+                        Body.PathTo(point1, 200);
                         IsInFlyPhase = true;
                     }
                     else
@@ -2262,7 +2349,7 @@ namespace DOL.AI.Brain
                     SpawnRainOfFire();
                     spawn_rain_of_fire = true;
                 }
-                if (HarbringerOfFate.HarbringersCount == 0)
+                if (_harbringersCount == 0)
                 {
                     if (spawn_harbringers == false)
                     {
@@ -2285,7 +2372,7 @@ namespace DOL.AI.Brain
                     ClearAggroList();
                     if (!Body.IsWithinRadius(point1, 100))
                     {
-                        Body.WalkTo(point1, 200);
+                        Body.PathTo(point1, 200);
                         IsInFlyPhase = true;                       
                     }
                     else
@@ -2307,7 +2394,7 @@ namespace DOL.AI.Brain
                     foreach(GamePlayer player in Body.GetPlayersInRadius(1800))
                     {
                         if (player != null && player.IsAlive && player.Client.Account.PrivLevel == 1)
-                            AggroList.TryAdd(player, new(200));
+                            AddToAggroList(player);
                     }
                     Body.SetGroundTarget(Body.X, Body.Y, Body.Z - 750);
                     if (!Body.IsCasting)
@@ -2345,10 +2432,10 @@ namespace DOL.AI.Brain
         #endregion
 
         #region Spawn Harbringers
-        public static bool spawn_harbringers = false;
+        public bool spawn_harbringers = false;
         public int SpawnHarbringers(ECSGameTimer timer)
         {
-            if (Apocalypse.KilledEnemys == 4)//he doint it only once, spawning 2 harbringers is killed 4 players
+            if (Body is Apocalypse apoc && apoc.KilledEnemys == 4)//he doint it only once, spawning 2 harbringers is killed 4 players
             {
                 foreach (GamePlayer player in Body.GetPlayersInRadius(2500))
                 {
@@ -2368,7 +2455,7 @@ namespace DOL.AI.Brain
                     Add.RespawnInterval = -1;
                     Add.PackageID = "ApocBaf";
                     Add.AddToWorld();
-                    ++HarbringerOfFate.HarbringersCount;
+                    ++_harbringersCount;
                 }
             }
             if(Body.HealthPercent <= 50 && pop_harbringers==false)/// spawning another 2 harbringers if boss is at 50%
@@ -2393,7 +2480,7 @@ namespace DOL.AI.Brain
                     Add.RespawnInterval = -1;
                     Add.PackageID = "ApocBaf";
                     Add.AddToWorld();
-                    ++HarbringerOfFate.HarbringersCount;
+                    ++_harbringersCount;
                 }
                 pop_harbringers = true;
             }
@@ -2405,6 +2492,7 @@ namespace DOL.AI.Brain
         public void SpawnRainOfFire()
         {
             RainOfFire Add = new RainOfFire();
+            Add.Apoc = Body as Apocalypse;
             Add.X = Body.X;
             Add.Y = Body.Y;
             Add.Z = Body.Z + 940;
@@ -2434,13 +2522,12 @@ namespace DOL.AI.Brain
                     spell.Radius = 800;
                     spell.Range = 2800;
                     spell.SpellID = 11740;
-                    spell.Target = "Area";
+                    spell.Target = eSpellTarget.AREA.ToString();
                     spell.Type = "DirectDamageNoVariance";
                     spell.Uninterruptible = true;
                     spell.MoveCast = true;
                     spell.DamageType = (int)eDamageType.Heat;
                     m_Apoc_Gtaoe = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Apoc_Gtaoe);
                 }
                 return m_Apoc_Gtaoe;
             }
@@ -2481,7 +2568,6 @@ namespace DOL.GS
                 return;
             base.SetStats(dbMob);
         }
-        public static int HarbringersCount = 0;
         public override short Quickness { get => base.Quickness; set => base.Quickness = 50; }
         public override short Strength { get => base.Strength; set => base.Strength = 200; }
         public override bool AddToWorld()
@@ -2557,6 +2643,8 @@ namespace DOL.GS
     {
         public RainOfFire() : base() { }
 
+        public Apocalypse Apoc;
+
         public override int GetResist(eDamageType damageType)
         {
             switch (damageType)
@@ -2569,9 +2657,9 @@ namespace DOL.GS
         }
         public override void EnemyKilled(GameLiving enemy)
         {
-            if (enemy is GamePlayer)
+            if (enemy is GamePlayer && Apoc != null && Apoc.IsAlive)
             {
-                ++Apocalypse.KilledEnemys;
+                ++Apoc.KilledEnemys;
             }
             base.EnemyKilled(enemy);
         }
@@ -2650,8 +2738,8 @@ namespace DOL.AI.Brain
             get { return dd_Target; }
             set { dd_Target = value; }
         }
-        public static bool cast_dd = false;
-        public static bool reset_cast = false;
+        public bool cast_dd = false;
+        public bool reset_cast = false;
         public void PickTarget()
         {
             foreach (GamePlayer player in Body.GetPlayersInRadius(2500))
@@ -2721,13 +2809,12 @@ namespace DOL.AI.Brain
                     spell.Radius = 600;
                     spell.Range = 2800;
                     spell.SpellID = 11738;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = eSpellType.DirectDamageNoVariance.ToString();
                     spell.Uninterruptible = true;
                     spell.MoveCast = true;
                     spell.DamageType = (int)eDamageType.Heat;
                     m_Apoc_Rain_of_Fire = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Apoc_Rain_of_Fire);
                 }
                 return m_Apoc_Rain_of_Fire;
             }

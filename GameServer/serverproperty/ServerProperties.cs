@@ -428,13 +428,13 @@ namespace DOL.GS.ServerProperties
 		/// <summary>
 		/// The first factor in the PVE mob damage equation. Lower hits harder.
 		/// </summary>
-		[ServerProperty("atlas", "pve_mob_damage_f1", "The first factor in the PVE mob damage equation. Lower hits harder.", 3.2)]
+		[ServerProperty("atlas", "pve_mob_damage_f1", "The first factor in the PVE mob damage equation. Lower hits harder.", 2.5)]
 		public static double PVE_MOB_DAMAGE_F1;
 
 		/// <summary>
 		/// The second factor in the PVE mob damage equation. Lower hits harder.
 		/// </summary>
-		[ServerProperty("atlas", "pve_mob_damage_f2", "The second factor in the PVE mob damage equation. Lower hits harder.", 150.0)]
+		[ServerProperty("atlas", "pve_mob_damage_f2", "The second factor in the PVE mob damage equation. Lower hits harder.", 120.0)]
 		public static double PVE_MOB_DAMAGE_F2;
 
 		/// <summary>
@@ -578,7 +578,7 @@ namespace DOL.GS.ServerProperties
 		/// <summary>
 		/// Enable PvE Speed
 		/// </summary>
-		[ServerProperty("server", "enable_pve_speed", "Set to true if you wish to enable the extra 25% increase to speed when not in combat or an RvR zone", true)]
+		[ServerProperty("server", "enable_pve_speed", "Set to true if you wish to enable the extra 25% increase to speed when not in combat or an RvR zone", false)]
 		public static bool ENABLE_PVE_SPEED;
 
 		/// <summary>
@@ -655,23 +655,35 @@ namespace DOL.GS.ServerProperties
 		[ServerProperty("world", "check_los_before_aggro", "Should we perform LoS checks before allowing standard NPCs to aggro from proximity.", true)]
 		public static bool CHECK_LOS_BEFORE_AGGRO;
 
-		[ServerProperty("world", "check_los_before_aggro_fnf", "Should we perform LoS checks before allowing FnF turrets to aggro from proximity. If false, they will attempt to cast behind walls.", true)]
+		[ServerProperty("world", "check_los_before_aggro_fnf", "Should we perform LoS checks before allowing FnF turrets to aggro from proximity. If false, they will attempt to cast behind walls.", false)]
 		public static bool CHECK_LOS_BEFORE_AGGRO_FNF;
 
-		[ServerProperty("world", "check_los_before_npc_ranged_attack", "Should we perform LoS checks before allowing archer NPCs to attack.", true)]
-		public static bool CHECK_LOS_BEFORE_NPC_RANGED_ATTACK;
+		[ServerProperty("world", "check_los_during_npc_ranged_attack", "Should NPCs perform LoS checks during ranged attacks.", false)]
+		public static bool CHECK_LOS_DURING_NPC_RANGED_ATTACK;
 
-		[ServerProperty("world", "check_los_during_ranged_attack_minimum_interval", "The minimum interval (milliseconds) between two LoS checks performed during a ranged attack.", 200)]
+		[ServerProperty("world", "check_los_during_ranged_attack_minimum_interval", "The minimum interval (milliseconds) between two LoS checks performed during a ranged attack. Used by NPCs only.", 200)]
 		public static int CHECK_LOS_DURING_RANGED_ATTACK_MINIMUM_INTERVAL;
 
-		[ServerProperty("world", "check_los_during_cast", "Should we perform LoS checks during spell casts.", true)]
-		public static bool CHECK_LOS_DURING_CAST;
+		[ServerProperty("world", "check_range_at_npc_ranged_attack_end", "Should NPCs check range at the end of a ranged attack.", false)]
+		public static bool CHECK_RANGE_AT_NPC_RANGED_ATTACK_END;
+
+		[ServerProperty("world", "check_los_during_player_cast", "Should players perform LoS checks during spell casts.", true)]
+		public static bool CHECK_LOS_DURING_PLAYER_CAST;
+
+		[ServerProperty("world", "check_los_during_npc_cast", "Should NPCs perform LoS checks during spell casts.", false)]
+		public static bool CHECK_LOS_DURING_NPC_CAST;
 
 		[ServerProperty("world", "check_los_during_cast_minimum_interval", "The minimum interval (milliseconds) between two LoS checks performed during a spell cast.", 200)]
 		public static int CHECK_LOS_DURING_CAST_MINIMUM_INTERVAL;
 
+		[ServerProperty("world", "check_range_at_npc_cast_end", "Should NPCs check range at the end of a spell cast.", false)]
+		public static bool CHECK_RANGE_AT_NPC_CAST_END;
+
 		[ServerProperty("world", "los_check_timeout", "After how long (milliseconds) should a los check timeout. If less than 0, the default ECS timer interval will be used.", 1500)]
 		public static int LOS_CHECK_TIMEOUT;
+
+		[ServerProperty("world", "gravestone_decay_time", "Minimum time (days) before a gravestone is removed from the world. 0 means no gravestones will be removed.", 7)]
+		public static int GRAVESTONE_DECAY_TIME;
 
 		/// <summary>
 		/// HPs gained per champion's level
@@ -708,12 +720,6 @@ namespace DOL.GS.ServerProperties
 		/// </summary>
 		[ServerProperty("world", "zonepoint_npctemplate", "Display the zonepoint with the following npctemplate. 0 for no display", 0)]
 		public static int ZONEPOINT_NPCTEMPLATE;
-
-		/// <summary>
-		/// Property to cause beneficial spells to target the caster if current target isn't valid
-		/// </summary>
-		[ServerProperty("server", "autoselect_caster", "Set to True if you wish beneficial spells to target the caster if the current target isn't valid.  Allows self-healing without changing targets.", false)]
-		public static bool AUTOSELECT_CASTER;
 		#endregion
 
 		#region RATES
@@ -1162,12 +1168,6 @@ namespace DOL.GS.ServerProperties
 		/// <summary>
 		/// Scale pet spell values according to their level?
 		/// </summary>
-		[ServerProperty("npc", "pet_scale_spell_max_level", "Disabled if 0 or less. If greater than 0, this value is the level at which pets cast their spells at 100% effectiveness, so choose spells for pets assuming they're at the level set here. Live is max pet level, 44 or 50 depending on patch.", 44)]
-		public static int PET_SCALE_SPELL_MAX_LEVEL;
-
-		/// <summary>
-		/// Scale pet spell values according to their level?
-		/// </summary>
 		[ServerProperty("npc", "pet_bd_commander_taunt_multiplier", "Percentage of damage that BD commanders get as extra aggro when taunting, e.g. a taunting BD commander gets 150% normal aggro at 50, 200% at 100, 250% at 150 etc. ", 150)]
 		public static int PET_BD_COMMANDER_TAUNT_VALUE;
 
@@ -1348,12 +1348,6 @@ namespace DOL.GS.ServerProperties
 		/// </summary>
 		[ServerProperty("pvp", "pvp_death_con_loss", "Loose con on pvp death on PvP servertype", true)]
 		public static bool PVP_DEATH_CON_LOSS;
-
-		/// <summary>
-		/// PvP Realm Timer. # of minutes an account must wait to change realms after pvp combat. 0 disables the timer
-		/// </summary>
-		[ServerProperty("pvp", "pvp_realm_timer_minutes", "# of minutes an account must wait to change realms after PvP combat. 0 disables the timer", 0)]
-		public static int PVP_REALM_TIMER_MINUTES;
 
 		/// <summary>
 		/// Whether releasing in a battleground should teleport the player to the portal keep
@@ -1605,6 +1599,12 @@ namespace DOL.GS.ServerProperties
 		/// </summary>
 		[ServerProperty("keeps", "pvp_unclaimed_keeps_enemy", "Are unclaimed keeps considered the enemy in PvP mode?", false)]
 		public static bool PVP_UNCLAIMED_KEEPS_ENEMY;
+
+		/// <summary>
+		/// Grace period in minutes to allow relog near enemy structure after link death
+		/// </summary>
+		[ServerProperty("keeps", "NearKeepRelogGracePeriod", "The grace period in minutes, to allow to relog near an enemy structure.", 3)]
+		public static int NEAR_KEEP_RELOG_GRACE_PERIOD;
 
 		/// <summary>
 		/// Should players that exceed BG level cap be moved out of BG when logging in?
@@ -2047,12 +2047,6 @@ namespace DOL.GS.ServerProperties
 		public static int RENT_DUE_DAYS;
 
 		/// <summary>
-		/// How often, in minutes, do we check for rent?
-		/// </summary>
-		[ServerProperty("housing", "rent_check_interval", "How often, in minutes, do we check for rent?", 120)]
-		public static int RENT_CHECK_INTERVAL;
-
-		/// <summary>
 		/// How many rent payments can be stored in the lockbox?
 		/// </summary>
 		[ServerProperty("housing", "rent_lockbox_payments", "How many rent payments can be stored in the lockbox?", 4)]
@@ -2085,7 +2079,7 @@ namespace DOL.GS.ServerProperties
 		/// <summary>
 		/// Enable logging of all market activity
 		/// </summary>
-		[ServerProperty("housing", "market_enable_log", "Enable debug logging of all market activity", true)]
+		[ServerProperty("housing", "market_enable_log", "Enable debug logging of all market activity", false)]
 		public static bool MARKET_ENABLE_LOG;
 
 		/// <summary>
@@ -2128,28 +2122,28 @@ namespace DOL.GS.ServerProperties
 		public static string DISABLED_RACES;
 
 		/// <summary>
-		/// Days before your elligable for a free level in Albion
+		/// Days before your eligible for a free level in Albion
 		/// </summary>
-		[ServerProperty("classes", "freelevel_days_albion", "days before your elligable for a free level in Albion, use -1 to deactivate", 7)]
+		[ServerProperty("classes", "freelevel_days_albion", "days before your eligible for a free level in Albion, use -1 to deactivate", 7)]
 		public static int FREELEVEL_DAYS_ALBION;
 		
 		/// <summary>
-		/// Days before your elligable for a free level in Midgard
+		/// Days before your eligible for a free level in Midgard
 		/// </summary>
-		[ServerProperty("classes", "freelevel_days_midgard", "days before your elligable for a free level in Midgard, use -1 to deactivate", 7)]
+		[ServerProperty("classes", "freelevel_days_midgard", "days before your eligible for a free level in Midgard, use -1 to deactivate", 7)]
 		public static int FREELEVEL_DAYS_MIDGARD;
 
 		/// <summary>
-		/// Days before your elligable for a free level in Hibernia
+		/// Days before your eligible for a free level in Hibernia
 		/// </summary>
-		[ServerProperty("classes", "freelevel_days_hibernia", "days before your elligable for a free level in Hibernia, use -1 to deactivate", 7)]
+		[ServerProperty("classes", "freelevel_days_hibernia", "days before your eligible for a free level in Hibernia, use -1 to deactivate", 7)]
 		public static int FREELEVEL_DAYS_HIBERNIA;
 
-		/// <summary>
-		/// Buff Range, 0 for unlimited
-		/// </summary>
-		[ServerProperty("classes", "buff_range", "The range that concentration buffs can last from the owner before it expires.  0 for unlimited.", 0)]
-		public static int BUFF_RANGE;
+		[ServerProperty("classes", "concentration_buff_range", "The range at which concentration buffs get disabled. 0 for unlimited.", 5000)]
+		public static int CONCENTRATION_BUFF_RANGE;
+
+		[ServerProperty("classes", "endurance_concentration_buff_range", "The range at which endurance concentration buffs get disabled. 0 for unlimited.", 1500)]
+		public static int ENDURANCE_CONCENTRATION_BUFF_RANGE;
 
 		/// <summary>
 		/// Allow Cata Slash Level
@@ -2208,22 +2202,25 @@ namespace DOL.GS.ServerProperties
 		[ServerProperty("classes", "ress_sickness_level", "What level should ress sickness start to apply?", (byte)6)]
 		public static byte RESS_SICKNESS_LEVEL;
 
+		[ServerProperty("classes", "volley_roof_check", "Enables roof obstruction checks for Volley", false)]
+		public static bool VOLLEY_ROOF_CHECK;
+
+		[ServerProperty("classes", "ground_target_snap_max_distance", "Max snap distance for ground-targets onto a walkable surface. Failed checks invalidate the ground target. (0 = disabled)", 16f)]
+		public static float GROUND_TARGET_SNAP_MAX_DISTANCE;
+
 		#endregion
 
 		#region SPELLS
 
-		/// <summary>
-		/// Spells-related properties
-		/// </summary>
-		[ServerProperty("spells", "spell_interrupt_duration", "", 3000)]
+		[ServerProperty("spells", "hard_interrupt_on_attacked", "Should the interrupt mechanic be replaced with immediate interrupts", false)]
+		public static bool HARD_INTERRUPT_ON_ATTACKED;
+
+		[ServerProperty("spells", "spell_interrupt_duration", "How long does an interrupt last", 3000)]
 		public static int SPELL_INTERRUPT_DURATION;
 
-		[ServerProperty("spells", "spell_interrupt_again", "", 100)]
-		public static int SPELL_INTERRUPT_AGAIN;
+		[ServerProperty("spells", "spell_self_interrupt_duration", "How long does a self interrupt lasts", 2200)]
+		public static int SPELL_SELF_INTERRUPT_DURATION;
 
-		[ServerProperty("spells", "spell_interrupt_maxstagelength", "Max length of stage 1 and 3, 1000 = 1 second", 1500)]
-		public static int SPELL_INTERRUPT_MAXSTAGELENGTH;
-		
 		[ServerProperty("spells", "spell_charm_named_check", "Prevents charm spell to work on Named Mobs, 0 = disable, 1 = enable", 1)]
 		public static int SPELL_CHARM_NAMED_CHECK;
 
@@ -2562,14 +2559,14 @@ namespace DOL.GS.ServerProperties
 				{
 					foreach (Type type in asm.GetTypes())
 					{
-						foreach (FieldInfo field in type.GetFields())
+						foreach (FieldInfo fld in type.GetFields())
 						{
 							// Properties are Static
-							if (!field.IsStatic)
+							if (!fld.IsStatic)
 								continue;
 							
 							// Properties shoud contain a property attribute
-							object[] attribs = field.GetCustomAttributes(typeof(ServerPropertyAttribute), false);
+							object[] attribs = fld.GetCustomAttributes(typeof(ServerPropertyAttribute), false);
 							if (attribs.Length == 0)
 								continue;
 							
@@ -2596,7 +2593,7 @@ namespace DOL.GS.ServerProperties
 								serverProp.Value = serverProp.DefaultValue;
 							}
 							
-							result[att.Key] = new Tuple<ServerPropertyAttribute, FieldInfo, DbServerProperty>(att, field, serverProp);
+							result[att.Key] = new Tuple<ServerPropertyAttribute, FieldInfo, DbServerProperty>(att, fld, serverProp);
 						}
 					}
 				}

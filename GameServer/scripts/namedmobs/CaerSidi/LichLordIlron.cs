@@ -61,22 +61,22 @@ namespace DOL.GS.Scripts
             sBrain.AggroLevel = 100;
             sBrain.AggroRange = 500;
 
-            LichLordIlronBrain.spawnimages = true;
+            sBrain.spawnimages = true;
             LoadedFromScript = false;//load from database
             SaveIntoDatabase();
             base.AddToWorld();
             return true;
         }
 
-        public override void Die(GameObject killer)
+        public override void ProcessDeath(GameObject killer)
         {
-            base.Die(killer);
-
             foreach (GameNPC npc in GetNPCsInRadius(4000))
             {
                 if (npc.Brain is IlronImagesBrain)
                     npc.RemoveFromWorld();
             }
+
+            base.ProcessDeath(killer);
         }
 
         [ScriptLoadedEvent]
@@ -94,7 +94,7 @@ namespace DOL.AI.Brain
     {
         private static readonly Logging.Logger log = Logging.LoggerManager.Create(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
-        public static bool spawnimages = true;
+        public bool spawnimages = true;
 
         public override void Think()
         {
@@ -254,13 +254,12 @@ namespace DOL.AI.Brain
                     spell.Radius = 300;
                     spell.SpellID = 99999;
                     spell.Duration = 30;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = "Mesmerize";
                     spell.Uninterruptible = true;
                     spell.MoveCast = true;
                     spell.DamageType = (int) eDamageType.Spirit; //Spirit DMG Type
                     m_mezSpell = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_mezSpell);
                 }
 
                 return m_mezSpell;

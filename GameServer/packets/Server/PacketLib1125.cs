@@ -187,7 +187,7 @@ namespace DOL.GS.PacketHandler
 							}
 							if (locationDescription.Length > 23) // location name over 23 chars has to be truncated eg. "The Great Pyramid of Stygia"
 							{
-								locationDescription = (locationDescription.Substring(0, 20)) + "...";
+								locationDescription = string.Concat(locationDescription.AsSpan(0, 20), "...");
 							}
 							pak.WritePascalStringIntLE(locationDescription);
 
@@ -415,7 +415,7 @@ namespace DOL.GS.PacketHandler
 			}
 		}
 
-		protected override void WriteGroupMemberUpdate(GSTCPPacketOut pak, bool updateIcons, bool updateMap, GameLiving living)
+		protected override void WriteGroupMemberUpdate(GSTCPPacketOut pak, GameLiving living)
 		{
 			pak.WriteByte((byte)(0x20 | living.GroupIndex)); // From 1 to 8 // 0x20 is player status code
 			if (living.CurrentRegion != m_gameClient.Player.CurrentRegion)
@@ -424,22 +424,17 @@ namespace DOL.GS.PacketHandler
 				pak.WriteByte(0x00); // mana
 				pak.WriteByte(0x00); // endu
 				pak.WriteByte(0x20); // player state (0x20 = another region)
-				if (updateIcons)
-				{
-					pak.WriteByte((byte)(0x80 | living.GroupIndex));
-					pak.WriteByte(0);
-				}
 				return;
 			}
 
 			var player = living as GamePlayer;
 
-			pak.WriteByte(player?.CharacterClass?.HealthPercentGroupWindow ?? living.HealthPercent);
+			pak.WriteByte(player?.HealthPercentGroupWindow ?? living.HealthPercent);
 			pak.WriteByte(living.ManaPercent);
 			pak.WriteByte(living.EndurancePercent); // new in 1.69
 
 			byte playerStatus = 0;
-			if (!living.IsAlive)
+			if (living.Health <=0)
 				playerStatus |= 0x01;
 			if (living.IsMezzed)
 				playerStatus |= 0x02;
@@ -454,37 +449,41 @@ namespace DOL.GS.PacketHandler
 			pak.WriteByte(playerStatus);
 			// 0x00 = Normal , 0x01 = Dead , 0x02 = Mezzed , 0x04 = Diseased ,
 			// 0x08 = Poisoned , 0x10 = Link Dead , 0x20 = In Another Region, 0x40 - NS
+		}
 
-			if (updateMap)
-				WriteGroupMemberMapUpdate(pak, living);
+		protected override void WriteGroupMemberIconsUpdate(GSTCPPacketOut pak, GameLiving living)
+		{
+			pak.WriteByte((byte)(0x80 | living.GroupIndex));
 
-			if (updateIcons)
+			if (living.CurrentRegion != m_gameClient.Player.CurrentRegion)
 			{
-				pak.WriteByte((byte)(0x80 | living.GroupIndex));
-
-				byte i = 0;
-				var effects = living.effectListComponent.GetEffects();
-				if (living is GamePlayer necro && (eCharacterClass) necro.CharacterClass.ID is eCharacterClass.Necromancer && necro.HasShadeModel)
-					effects.AddRange(necro.ControlledBrain.Body.effectListComponent.GetEffects().Where(e => e.TriggersImmunity));
-				foreach (var effect in effects)//.Effects.Values)
-												//foreach (ECSGameEffect effect in effects)
-					if (effect is ECSGameEffect && !effect.IsDisabled)
-						i++;
-				pak.WriteByte(i);
-				foreach (var effect in effects)//.Effects.Values)
-												//foreach (ECSGameEffect effect in effects)
-					if (effect is ECSGameEffect && !effect.IsDisabled)
-					{
-						pak.WriteByte(0);
-						pak.WriteShort(effect.Icon);
-					}
+				pak.WriteByte(0);
+				return;
 			}
+
+			var player = living as GamePlayer;
+			byte i = 0;
+			var effects = living.effectListComponent.GetSortedEffects();
+
+			if (player != null && player.ControlledBrain is NecromancerPet necromancerPet)
+				effects.AddRange(necromancerPet.effectListComponent.GetSortedEffects(static e => e.TriggersImmunity));
+
+			foreach (var effect in effects)
+				if (effect is ECSGameEffect && !effect.IsDisabled)
+					i++;
+			pak.WriteByte(i);
+			foreach (var effect in effects)
+				if (effect is ECSGameEffect && !effect.IsDisabled)
+				{
+					pak.WriteByte(0);
+					pak.WriteShort(effect.Icon);
+				}
 		}
 
 		/// <summary>
 		/// 1125d+ Market Explorer
 		/// </summary>
-		public override void SendMarketExplorerWindow(IList<DbInventoryItem> items, byte page, byte maxpage)
+		public override void SendMarketExplorerWindow(List<DbInventoryItem> items, byte page, byte maxpage)
 		{
 			using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.MarketExplorerWindow)))
 			{

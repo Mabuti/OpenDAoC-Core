@@ -2,17 +2,23 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using DOL.Database;
+using DOL.GS.ServerProperties;
 using DOL.GS.Spells;
+using DOL.Logging;
 
 namespace DOL.GS
 {
     public static class EffectHelper
     {
-        private static readonly Logging.Logger log = Logging.LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
+        private static readonly Logger log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
 
-        public static int GetConcentrationEffectActivationRange(eSpellType spellType)
+        public static bool IsWithinConcentrationBuffRadius(GameLiving effectOwner, GameLiving effectSource, eSpellType spellType)
         {
-            return spellType is not eSpellType.EnduranceRegenBuff ? ServerProperties.Properties.BUFF_RANGE > 0 ? ServerProperties.Properties.BUFF_RANGE : 5000 : 1500;
+            int radius = spellType is eSpellType.EnduranceRegenBuff ?
+                Properties.ENDURANCE_CONCENTRATION_BUFF_RANGE :
+                Properties.CONCENTRATION_BUFF_RANGE;
+
+            return radius == 0 || effectOwner.IsWithinRadius(effectSource, radius);
         }
 
         public static void SendSpellAnimation(ECSGameSpellEffect e)
@@ -78,7 +84,7 @@ namespace DOL.GS
                 case eSpellType.AcuityBuff:
                     return eEffect.AcuityBuff;
                 case eSpellType.ArmorAbsorptionBuff:
-                    return eEffect.ArmorAbsorptionBuff;
+                    return eEffect.PhysicalAbsorptionBuff; // Every ABS buff are applied as secondary ABS buff and don't modify armor ABS.
                 case eSpellType.BaseArmorFactorBuff:
                     return eEffect.BaseAFBuff;
                 case eSpellType.SpecArmorFactorBuff:
@@ -138,6 +144,7 @@ namespace DOL.GS
                 case eSpellType.StyleSpeedDecrease:
                 case eSpellType.SpeedDecrease:
                 case eSpellType.UnbreakableSpeedDecrease:
+                case eSpellType.PreventFlight:
                     return eEffect.MovementSpeedDebuff;
                 case eSpellType.MeleeDamageDebuff:
                     return eEffect.MeleeDamageDebuff;
@@ -161,10 +168,6 @@ namespace DOL.GS
                     return eEffect.MesmerizeDurationBuff;
                 //case eSpellType.MezImmunity:
                 //    return eEffect.MezImmunity;
-                //case eSpellType.StyleSpeedDecrease:
-                //    return eEffect.MeleeSnare;
-                //case eSpellType.Snare: // May work off of SpeedDecrease.
-                //    return eEffect.Snare;
                 //case eSpellType.SnareImmunity: // Not implemented.
                 //    return eEffect.SnareImmunity;
                 case eSpellType.Nearsight:
@@ -213,7 +216,9 @@ namespace DOL.GS
                 case eSpellType.SavageDPSBuff:
                 case eSpellType.SavageEnduranceHeal:
                 case eSpellType.SavageEvadeBuff:
+                case eSpellType.SavageStyleEvadeBuff:
                 case eSpellType.SavageParryBuff:
+                case eSpellType.SavageStyleParryBuff:
                 case eSpellType.SavageSlashResistanceBuff:
                 case eSpellType.SavageThrustResistanceBuff:
                     return eEffect.SavageBuff;
@@ -274,8 +279,7 @@ namespace DOL.GS
                 case eSpellType.Stun:
                     return eEffect.StunImmunity;
                 case eSpellType.SpeedDecrease:
-                case eSpellType.DamageSpeedDecreaseNoVariance:
-                case eSpellType.DamageSpeedDecrease:
+                case eSpellType.UnbreakableSpeedDecrease:
                     return eEffect.SnareImmunity;
                 case eSpellType.Nearsight:
                     return eEffect.NearsightImmunity;
@@ -349,9 +353,11 @@ namespace DOL.GS
                 case eEffect.ArmorFactorDebuff:
                     list.Add(eProperty.ArmorFactor);
                     return list;
-                case eEffect.ArmorAbsorptionBuff:
                 case eEffect.ArmorAbsorptionDebuff:
                     list.Add(eProperty.ArmorAbsorption);
+                    return list;
+                case eEffect.PhysicalAbsorptionBuff:
+                    list.Add(eProperty.PhysicalAbsorption);
                     return list;
                 case eEffect.MeleeDamageBuff:
                 case eEffect.MeleeDamageDebuff:
@@ -461,22 +467,22 @@ namespace DOL.GS
                 case eEffect.Disease:
                 {
                     playerUpdate |= PlayerUpdate.Stats;
-                    playerUpdate |= PlayerUpdate.Encumberance;
+                    playerUpdate |= PlayerUpdate.Encumbrance;
+                    playerUpdate |= PlayerUpdate.WeaponArmor;
                     break;
                 }
                 case eEffect.StrengthConBuff:
                 case eEffect.StrConDebuff:
                 {
-                    playerUpdate |= PlayerUpdate.Status;
                     playerUpdate |= PlayerUpdate.Stats;
-                    playerUpdate |= PlayerUpdate.Encumberance;
+                    playerUpdate |= PlayerUpdate.Encumbrance;
+                    playerUpdate |= PlayerUpdate.WeaponArmor;
                     break;
                 }
                 case eEffect.ConstitutionBuff:
                 case eEffect.ConstitutionDebuff:
                 case eEffect.WsConDebuff:
                 {
-                    playerUpdate |= PlayerUpdate.Status;
                     playerUpdate |= PlayerUpdate.Stats;
                     break;
                 }
@@ -484,8 +490,17 @@ namespace DOL.GS
                 case eEffect.DexterityDebuff:
                 case eEffect.QuicknessBuff:
                 case eEffect.QuicknessDebuff:
+                {
+                    playerUpdate |= PlayerUpdate.Stats;
+                    break;
+                }
                 case eEffect.DexQuickBuff:
                 case eEffect.DexQuiDebuff:
+                {
+                    playerUpdate |= PlayerUpdate.Stats;
+                    playerUpdate |= PlayerUpdate.WeaponArmor;
+                    break;
+                }
                 case eEffect.AcuityBuff:
                 case eEffect.AcuityDebuff:
                 {
@@ -556,7 +571,6 @@ namespace DOL.GS
                 ISpellHandler handler = ScriptMgr.CreateSpellHandler(player, spell, line);
                 handler.Spell.Duration = savedEffect.Duration;
                 handler.StartSpell(player);
-                player.Out.SendStatusUpdate();
             }
         }
 
@@ -589,13 +603,12 @@ namespace DOL.GS
         [Flags]
         public enum PlayerUpdate : ushort
         {
-            PetWindow =     1 << 8,
-            Icons =         1 << 7,
-            Status =        1 << 6,
+            PetWindow =     1 << 7,
+            Icons =         1 << 6,
             Stats =         1 << 5,
             Resists =       1 << 4,
             WeaponArmor =   1 << 3,
-            Encumberance =  1 << 2,
+            Encumbrance =   1 << 2,
             Concentration = 1,
             None =          0
         }

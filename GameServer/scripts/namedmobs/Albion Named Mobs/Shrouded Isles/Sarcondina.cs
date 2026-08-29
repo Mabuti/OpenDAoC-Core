@@ -77,14 +77,14 @@ namespace DOL.GS
 			base.AddToWorld();
 			return true;
 		}
-		public override void Die(GameObject killer)
+		public override void ProcessDeath(GameObject killer)
 		{
 			foreach (GameNPC npc in GetNPCsInRadius(5000))
 			{
 				if (npc != null && npc.IsAlive && npc.RespawnInterval == -1 && npc.PackageID == "SarcondinaAdd")
 					npc.Die(this);
 			}
-			base.Die(killer);
+			base.ProcessDeath(killer);
 		}
 		public override void OnAttackEnemy(AttackData ad) //on enemy actions
 		{
@@ -123,14 +123,13 @@ namespace DOL.GS
 					spell.Duration = 20;
 					spell.Frequency = 40;
 					spell.SpellID = 11805;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.SpellGroup = 1800;
 					spell.EffectGroup = 1500;
 					spell.Type = eSpellType.DamageOverTime.ToString();
 					spell.Uninterruptible = true;
 					spell.DamageType = (int)eDamageType.Matter;
 					m_Sarcondina_Dot = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Sarcondina_Dot);
 				}
 				return m_Sarcondina_Dot;
 			}

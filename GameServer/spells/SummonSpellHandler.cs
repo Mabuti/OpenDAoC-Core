@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Reflection;
 using DOL.AI.Brain;
 using DOL.Events;
 using DOL.GS.Effects;
 using DOL.GS.PacketHandler;
 using DOL.Logging;
+using OpenDAoC.Pathing;
 
 namespace DOL.GS.Spells
 {
@@ -24,7 +26,7 @@ namespace DOL.GS.Spells
 	{
 		private static readonly Logger log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
 
-		public override string ShortDescription => $"Summon a pet to serve the caster, with a maximum level of {Math.Abs(Spell.Damage)}% of the caster's level (up to {Math.Min((int) (50 * Math.Abs(Spell.Damage) / 100), Spell.Value)}).";
+		public override string ShortDescription => $"Summon a pet to serve the caster, with a maximum level of {Math.Abs(Spell.Damage)}% of the caster's level (up to {Math.Min((int) (GamePlayer.MAX_LEVEL * Math.Abs(Spell.Damage) / 100.0), Spell.Value)}){GetFrequencyAndDurationSuffix()}.";
 
 		protected GameSummonedPet m_pet = null;
 
@@ -43,7 +45,7 @@ namespace DOL.GS.Spells
 
 		public override ECSGameSpellEffect CreateECSEffect(in ECSGameEffectInitParams initParams)
 		{
-			return ECSGameEffectFactory.Create(initParams, static (in ECSGameEffectInitParams i) => new PetECSGameEffect(i));
+			return ECSGameEffectFactory.Create(initParams, static (in i) => new PetECSGameEffect(i));
 		}
 
 		/// <summary>
@@ -71,11 +73,35 @@ namespace DOL.GS.Spells
 
 		protected virtual void GetPetLocation(out int x, out int y, out int z, out ushort heading, out Region region)
 		{
-			Point2D point = Caster.GetPointFromHeading( Caster.Heading, 64 );
-			x = point.X;
-			y = point.Y;
-			z = Caster.Z;
-			heading = (ushort)((Caster.Heading + 2048) % 4096);
+			Point2D point = Caster.GetPointFromHeading(Caster.Heading, 64);
+			Zone zone = Caster.CurrentRegion.GetZone(point.X, point.Y);
+
+			if (zone.IsPathfindingEnabled)
+			{
+				EDtPolyFlags[] filters = PathfindingProvider.Instance.DefaultFilters;
+				Vector3? closestPoint = PathfindingProvider.Instance.GetClosestPoint(zone, new(point.X, point.Y, Caster.Z), 32f, 32f, 64f, filters);
+
+				if (closestPoint.HasValue && PathfindingProvider.Instance.HasLineOfSight(zone, closestPoint.Value, new(Caster.X, Caster.Y, Caster.Z), filters))
+				{
+					x = (int) Math.Round(closestPoint.Value.X);
+					y = (int) Math.Round(closestPoint.Value.Y);
+					z = (int) Math.Round(closestPoint.Value.Z);
+				}
+				else
+				{
+					x = Caster.X;
+					y = Caster.Y;
+					z = Caster.Z;
+				}
+			}
+			else
+			{
+				x = point.X;
+				y = point.Y;
+				z = Caster.Z;
+			}
+
+			heading = (ushort) ((Caster.Heading + 2048) % 4096);
 			region = Caster.CurrentRegion;
 		}
 

@@ -139,9 +139,6 @@ namespace DOL.GS
             if (!Styles.Contains(AfterParry))
                 Styles.Add(AfterParry);
 
-            ChieftainCaimheulBrain.Phase2 = false;
-            ChieftainCaimheulBrain.CanWalk = false;
-            ChieftainCaimheulBrain.IsPulled = false;
             VisibleActiveWeaponSlots = 16;
             MeleeDamageType = eDamageType.Slash;
             ChieftainCaimheulBrain sbrain = new ChieftainCaimheulBrain();
@@ -201,9 +198,9 @@ namespace DOL.AI.Brain
             AggroRange = 500;
             ThinkInterval = 1500;
         }
-        public static bool Phase2 = false;
-        public static bool CanWalk = false;
-        public static bool IsPulled = false;
+        public bool Phase2 = false;
+        public bool CanWalk = false;
+        public bool IsPulled = false;
         public override void Think()
         {
             if (!CheckProximityAggro())
@@ -341,7 +338,6 @@ namespace DOL.AI.Brain
                     float angle = living.GetAngle(Body);
                     Point2D positionalPoint;
                     positionalPoint = living.GetPointFromHeading((ushort)(living.Heading + (90 * (4096.0 / 360.0))), 65);
-                    //Body.WalkTo(positionalPoint.X, positionalPoint.Y, living.Z, 280);
                     Body.X = positionalPoint.X;
                     Body.Y = positionalPoint.Y;
                     Body.Z = living.Z;

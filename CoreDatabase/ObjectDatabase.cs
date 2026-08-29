@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
@@ -8,6 +9,7 @@ using System.Reflection;
 using DOL.Database.Attributes;
 using DOL.Database.Connection;
 using DOL.Database.Handlers;
+using DOL.Logging;
 
 namespace DOL.Database
 {
@@ -16,10 +18,9 @@ namespace DOL.Database
 	/// </summary>
 	public abstract class ObjectDatabase : IObjectDatabase
 	{
-		/// <summary>
-		/// Defines a logger for this class.
-		/// </summary>
-		protected static readonly Logging.Logger log = Logging.LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
+		protected static readonly Logger log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
+
+		protected const long LONG_EXEC_THRESHOLD = 100;
 
 		/// <summary>
 		/// Number Format Info to Use for Database
@@ -567,7 +568,7 @@ namespace DOL.Database
 					dataObject.TakeSnapshot();
 			}
 		}
-		
+
 		/// <summary>
 		/// Populate or Refresh Object Relation Implementation
 		/// </summary>
@@ -578,82 +579,117 @@ namespace DOL.Database
 		/// <param name="dataObjects">DataObjects to Populate</param>
 		protected virtual void FillObjectRelationsImpl(ElementBinding relationBind, ElementBinding localBind, ElementBinding remoteBind, DataTableHandler remoteHandler, IEnumerable<DataObject> dataObjects)
 		{
-			var type = relationBind.ValueType;
-			var isElementType = false;
+			Type type = relationBind.ValueType;
+			bool isElementType = false;
+
 			if (type.HasElementType)
 			{
 				type = type.GetElementType();
 				isElementType = true;
 			}
-			
-			var objects = dataObjects.ToArray();
-			IEnumerable<IEnumerable<DataObject>> objsResults = null;
-			
-			// Handle Cache Search if relevent or use a Select Query
+
 			if (remoteHandler.UsesPreCaching)
 			{
-				// Search with Primary Key or use a Where Clause
-				if (remoteHandler.PrimaryKeys.All(pk => pk.ColumnName.Equals(remoteBind.ColumnName, StringComparison.OrdinalIgnoreCase)))
+				// This Select directly corresponds to each item in dataObjects, maintaining order.
+				var objsResults = dataObjects.Select(obj =>
 				{
-					objsResults = objects.Select(obj => {
-					                             	var local = localBind.GetValue(obj);
-					                             	if (local == null)
-					                             		return Array.Empty<DataObject>();
-					                             	
-					                             	var retrieve = remoteHandler.GetPreCachedObject(local);
-					                             	if (retrieve == null)
-					                             		return Array.Empty<DataObject>();
-					                             	
-					                             	return new [] { retrieve };
-					                             });
-				}
-				else
-				{
-					objsResults = objects
-						.Select(obj => remoteHandler.SearchPreCachedObjects(rem => {
-						                                                    	var local = localBind.GetValue(obj);
-						                                                    	var remote = remoteBind.GetValue(rem);
-						                                                    	if (local == null || remote == null)
-						                                                    		return false;
-						                                                    	
-						                                                    	if (localBind.ValueType == typeof(string) || remoteBind.ValueType == typeof(string))
-						                                                    		return remote.ToString().Equals(local.ToString(), StringComparison.OrdinalIgnoreCase);
-						                                                    	
-						                                                    	return remote == local;
-						                                                    }));
-				}
-			}
-			else
-			{
-				var whereClauses = objects.Select(obj => DB.Column(remoteBind.ColumnName).IsEqualTo(localBind.GetValue(obj)));
-				objsResults = MultipleSelectObjectsImpl(remoteHandler, whereClauses);
-			}
-			
-			var resultByObjs = objsResults.Select((obj, index) => new { DataObject = objects[index], Results = obj }).ToArray();
-			
-			// Store Relations
-			foreach (var result in resultByObjs)
-			{
-				if (isElementType)
-				{
-					if (result.Results.Any())
+					if (remoteHandler.PrimaryKeys.All(pk => pk.ColumnName.Equals(remoteBind.ColumnName, StringComparison.OrdinalIgnoreCase)))
 					{
-						Array array = CastAndToArray(result.Results.Cast<object>(), type);
-						relationBind.SetValue(result.DataObject, array);
+						object local = localBind.GetValue(obj);
+
+						if (local == null)
+							return Enumerable.Empty<DataObject>();
+
+						DataObject retrieve = remoteHandler.GetPreCachedObject(local);
+						
+						if (retrieve == null)
+							return Enumerable.Empty<DataObject>();
+							
+						return [retrieve];
 					}
 					else
 					{
-						relationBind.SetValue(result.DataObject, null);
+						return remoteHandler.SearchPreCachedObjects(rem =>
+						{
+							object local = localBind.GetValue(obj);
+							object remote = remoteBind.GetValue(rem);
+
+							if (local == null || remote == null)
+								return false;
+
+							if (localBind.ValueType == typeof(string) || remoteBind.ValueType == typeof(string))
+								return remote.ToString().Equals(local.ToString(), StringComparison.OrdinalIgnoreCase);
+
+							return remote.Equals(local);
+						});
 					}
+				});
+
+				var resultByObjsFromCache = dataObjects.Zip(objsResults, (dataObj, results) => new { DataObject = dataObj, Results = results });
+				AssignRelations(resultByObjsFromCache, isElementType, type, relationBind);
+				FillObjectRelations(resultByObjsFromCache.SelectMany(result => result.Results), false);
+				return;
+			}
+
+			List<object> localKeys = dataObjects
+				.Select(o => localBind.GetValue(o))
+				.Where(v => v != null)
+				.Distinct()
+				.ToList();
+
+			if (localKeys.Count == 0)
+			{
+				foreach (DataObject obj in dataObjects)
+					relationBind.SetValue(obj, null);
+
+				return;
+			}
+
+			WhereClause batchWhereClause = DB.Column(remoteBind.ColumnName).IsIn(localKeys);
+			IEnumerable<DataObject> allRelatedObjects = MultipleSelectObjectsImpl(remoteHandler, [batchWhereClause]).FirstOrDefault() ?? Enumerable.Empty<DataObject>();
+			ILookup<object, DataObject> relatedObjectsMap = allRelatedObjects.ToLookup(r => remoteBind.GetValue(r));
+
+			var resultByObjs = dataObjects.Select(obj =>
+			{
+				object localKeyValue = localBind.GetValue(obj);
+				IEnumerable<DataObject> related;
+
+				if (localKeyValue != null && relatedObjectsMap.Contains(localKeyValue))
+					related = relatedObjectsMap[localKeyValue];
+				else
+					related = [];
+
+				return new { DataObject = obj, Results = related };
+			});
+
+			AssignRelations(resultByObjs, isElementType, type, relationBind);
+			FillObjectRelations(resultByObjs.SelectMany(result => result.Results), false);
+		}
+
+		private static void AssignRelations(IEnumerable<dynamic> resultByObjs, bool isElementType, Type type, ElementBinding relationBind)
+		{
+			foreach (dynamic result in resultByObjs)
+			{
+				// Cast the dynamic property to the non-generic IEnumerable.
+				// This ensures that the LINQ extension methods can be found at runtime,
+				// regardless of the underlying collection type (List<T>, T[], Array, etc.).
+				IEnumerable enumerableResults = result.Results;
+
+				if (isElementType)
+				{
+					DataObject[] resultsArray = enumerableResults.Cast<DataObject>().ToArray();
+
+					if (resultsArray.Length != 0)
+					{
+						Array array = CastAndToArray(resultsArray.Cast<object>(), type);
+						relationBind.SetValue(result.DataObject, array);
+					}
+					else
+						relationBind.SetValue(result.DataObject, null);
 				}
 				else
-				{
-					relationBind.SetValue(result.DataObject, result.Results.SingleOrDefault());
-				}
+					relationBind.SetValue(result.DataObject, enumerableResults.Cast<DataObject>().SingleOrDefault());
 			}
-			
-			// Fill Sub Relations
-			FillObjectRelations(resultByObjs.SelectMany(result => result.Results), false);
 		}
 
 		private static Array CastAndToArray(IEnumerable<object> source, Type targetType)
@@ -687,7 +723,7 @@ namespace DOL.Database
 		/// </summary>
 		/// <param name="keys">Collection of Primary Key Values</param>
 		/// <returns>Collection of DataObject with primary key matching values</returns>
-		public virtual IList<TObject> FindObjectsByKey<TObject>(IEnumerable<object> keys)
+		public virtual List<TObject> FindObjectsByKey<TObject>(IEnumerable<object> keys)
 			where TObject : DataObject
 		{
 			var tableHandler = GetTableOrViewHandler(typeof(TObject));
@@ -700,9 +736,9 @@ namespace DOL.Database
 			}
 			
 			if (tableHandler.UsesPreCaching)
-				return keys.Select(key => tableHandler.GetPreCachedObject(key)).Cast<TObject>().ToArray();
+				return keys.Select(tableHandler.GetPreCachedObject).Cast<TObject>().ToList();
 			
-			var objs = FindObjectByKeyImpl(tableHandler, keys).Cast<TObject>().ToArray();
+			var objs = FindObjectByKeyImpl(tableHandler, keys).Cast<TObject>().ToList();
 			
 			FillObjectRelations(objs.Where(obj => obj != null), false);
 			
@@ -725,13 +761,13 @@ namespace DOL.Database
 			return SelectObjects<TObject>(whereClause).FirstOrDefault();
 		}
 
-		public IList<TObject> SelectObjects<TObject>(WhereClause whereClause)
+		public List<TObject> SelectObjects<TObject>(WhereClause whereClause)
 			where TObject : DataObject
 		{
 			return MultipleSelectObjects<TObject>(new[] { whereClause }).First();
 		}
 
-		public IList<IList<TObject>> MultipleSelectObjects<TObject>(IEnumerable<WhereClause> whereClauseBatch)
+		public List<List<TObject>> MultipleSelectObjects<TObject>(IEnumerable<WhereClause> whereClauseBatch)
 			where TObject : DataObject
 		{
 			if (whereClauseBatch == null) throw new ArgumentNullException("Parameter whereClauseBatch may not be null.");
@@ -745,7 +781,7 @@ namespace DOL.Database
 				throw new DatabaseException(string.Format("Table {0} is not registered for Database Connection...", typeof(TObject).FullName));
 			}
 
-			var objs = MultipleSelectObjectsImpl(tableHandler, whereClauseBatch).Select(res => res.OfType<TObject>().ToArray()).ToArray();
+			var objs = MultipleSelectObjectsImpl(tableHandler, whereClauseBatch).Select(res => res.OfType<TObject>().ToList()).ToList();
 
 			FillObjectRelations(objs.SelectMany(obj => obj), false);
 
@@ -754,7 +790,7 @@ namespace DOL.Database
 		#endregion
 		
 		#region Public Object Select All API
-		public IList<TObject> SelectAllObjects<TObject>()
+		public List<TObject> SelectAllObjects<TObject>()
 			where TObject : DataObject
 		{
 			var tableHandler = GetTableOrViewHandler(typeof(TObject));
@@ -767,9 +803,9 @@ namespace DOL.Database
 			}
 
 			if (tableHandler.UsesPreCaching)
-				return tableHandler.SearchPreCachedObjects(obj => obj != null).OfType<TObject>().ToArray();
+				return tableHandler.SearchPreCachedObjects(obj => obj != null).OfType<TObject>().ToList();
 
-			var dataObjects = MultipleSelectObjectsImpl(tableHandler, new[] { WhereClause.Empty }).Single().OfType<TObject>().ToArray();
+			var dataObjects = MultipleSelectObjectsImpl(tableHandler, new[] { WhereClause.Empty }).Single().OfType<TObject>().ToList();
 
 			FillObjectRelations(dataObjects, false);
 
@@ -867,9 +903,9 @@ namespace DOL.Database
 		/// <param name="parameters">Parameters for filtering</param>
 		/// <param name="isolation">Isolation Level</param>
 		/// <returns>Collection of DataObjects Sets matching Parametrized Where Expression</returns>
-		protected abstract IList<IList<DataObject>> SelectObjectsImpl(DataTableHandler tableHandler, string whereExpression, IEnumerable<IEnumerable<QueryParameter>> parameters, Transaction.EIsolationLevel isolation);
+		protected abstract List<List<DataObject>> SelectObjectsImpl(DataTableHandler tableHandler, string whereExpression, IEnumerable<IEnumerable<QueryParameter>> parameters, Transaction.EIsolationLevel isolation);
 
-		protected abstract IList<IList<DataObject>> MultipleSelectObjectsImpl(DataTableHandler tableHandler, IEnumerable<WhereClause> whereClauseBatch);
+		protected abstract List<List<DataObject>> MultipleSelectObjectsImpl(DataTableHandler tableHandler, IEnumerable<WhereClause> whereClauseBatch);
 
 		/// <summary>
 		/// Gets the number of objects in a given table in the database based on a given set of criteria. (where clause)

@@ -25,7 +25,6 @@ namespace DOL.GS
 
         protected void OnHardCCStart()
         {
-            Owner.attackComponent.StopAttack();
             Owner.StopCurrentSpellcast();
             Owner.DisableTurning(true);
 
@@ -57,7 +56,7 @@ namespace DOL.GS
             {
                 OwnerPlayer.Client.Out.SendUpdateMaxSpeed();
                 if (OwnerPlayer.Group != null)
-                    OwnerPlayer.Group.UpdateMember(OwnerPlayer, false, false);
+                    OwnerPlayer.Group.UpdateMember(OwnerPlayer, false);
             }
         }
 
@@ -90,8 +89,8 @@ namespace DOL.GS
             UpdatePlayerStatus();
 
             // Immediately start the immunity effect for NPCs. This is used for diminishing returns.
-            if (TriggersImmunity && Owner is GameNPC npc && !npc.effectListComponent.ContainsEffectForEffectType(eEffect.NPCStunImmunity))
-                ECSGameEffectFactory.Create(new(Owner, ImmunityDuration, Effectiveness, SpellHandler), static (in ECSGameEffectInitParams i) => new NpcStunImmunityEffect(i));
+            if (AppliedImmunityType is ImmunityType.Npc && !Owner.effectListComponent.ContainsEffectForEffectType(eEffect.NPCStunImmunity))
+                ECSGameEffectFactory.Create(new(Owner, ImmunityDuration, Effectiveness, SpellHandler), static (in i) => new NpcStunImmunityEffect(i));
 
             // "You are stunned!"
             // "{0} is stunned!"
@@ -100,7 +99,7 @@ namespace DOL.GS
 
         public override void OnStopEffect()
         {
-            Owner.IsStunned = false;
+            Owner.IsStunned = Owner.effectListComponent.ContainsEffectForEffectType(eEffect.Stun);
             OnHardCCStop();
             UpdatePlayerStatus();
 
@@ -128,8 +127,8 @@ namespace DOL.GS
             UpdatePlayerStatus();
 
             // Immediately start the immunity effect for NPCs. This is used for diminishing returns.
-            if (TriggersImmunity && Owner is GameNPC npc && !npc.effectListComponent.ContainsEffectForEffectType(eEffect.NPCMezImmunity))
-                ECSGameEffectFactory.Create(new(Owner, ImmunityDuration, Effectiveness, SpellHandler), static (in ECSGameEffectInitParams i) => new NpcMezImmunityEffect(i));
+            if (AppliedImmunityType is ImmunityType.Npc && !Owner.effectListComponent.ContainsEffectForEffectType(eEffect.NPCMezImmunity))
+                ECSGameEffectFactory.Create(new(Owner, ImmunityDuration, Effectiveness, SpellHandler), static (in i) => new NpcMezImmunityEffect(i));
 
             // "You are entranced!"
             // "You are mesmerized!"
@@ -138,7 +137,7 @@ namespace DOL.GS
 
         public override void OnStopEffect()
         {
-            Owner.IsMezzed = false;
+            Owner.IsMezzed = Owner.effectListComponent.ContainsEffectForEffectType(eEffect.Mez);
             OnHardCCStop();
             UpdatePlayerStatus();
 

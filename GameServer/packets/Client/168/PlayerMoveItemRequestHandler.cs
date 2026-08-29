@@ -5,9 +5,9 @@ using DOL.Language;
 namespace DOL.GS.PacketHandler.Client.v168
 {
     [PacketHandlerAttribute(PacketHandlerType.TCP, eClientPackets.PlayerMoveItem, "Handle Moving Items Request", eClientStatus.PlayerInGame)]
-    public class PlayerMoveItemRequestHandler : IPacketHandler
+    public class PlayerMoveItemRequestHandler : PacketHandler
     {
-        public void HandlePacket(GameClient client, GSPacketIn packet)
+        protected override void HandlePacketInternal(GameClient client, GSPacketIn packet)
         {
             if (client.Player == null)
                 return;
@@ -88,12 +88,12 @@ namespace DOL.GS.PacketHandler.Client.v168
             }
             else
             {
-                DbInventoryItem item;
+                DbInventoryItem item = null;
 
                 if (GameInventoryObjectExtensions.IsCharacterInventorySlot(fromClientSlot) || GameInventoryObjectExtensions.IsCharacterVaultSlot(fromClientSlot))
                     item = client.Player.Inventory.GetItem(fromClientSlot);
                 else
-                    item = client.Player.ActiveInventoryObject?.GetClientInventory(client.Player)[(int) fromClientSlot];
+                    client.Player.ActiveInventoryObject?.TryGetItem((int) fromClientSlot, out item);
 
                 if (item == null)
                 {
@@ -291,19 +291,6 @@ namespace DOL.GS.PacketHandler.Client.v168
             {
                 client.Out.SendInventorySlotsUpdate([fromClientSlot]);
                 client.Out.SendMessage($"Invalid item (slot #{fromClientSlot}).", eChatType.CT_System, eChatLoc.CL_SystemWindow);
-                return;
-            }
-
-            if (fromClientSlot < eInventorySlot.FirstBackpack)
-            {
-                client.Out.SendInventorySlotsUpdate([fromClientSlot]);
-                return;
-            }
-
-            if (!item.IsDropable)
-            {
-                client.Out.SendInventorySlotsUpdate([fromClientSlot]);
-                client.Out.SendMessage("You can not drop this item!", eChatType.CT_System, eChatLoc.CL_SystemWindow);
                 return;
             }
 

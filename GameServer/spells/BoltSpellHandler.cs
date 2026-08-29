@@ -7,7 +7,7 @@ namespace DOL.GS.Spells
     {
         private bool _combatBlock;
 
-        public override string ShortDescription => $"A magical bolt shoots toward the target, exploding on impact for {Spell.Damage} {Spell.DamageTypeToString()} damage. Can be blocked.";
+        public override string ShortDescription => $"A magical bolt shoots toward the target, exploding on impact for {Spell.Damage} {Spell.DamageTypeToString()} damage{GetFrequencyAndDurationSuffix()}. Can be blocked.";
 
         public BoltSpellHandler(GameLiving caster, Spell spell, SpellLine line) : base(caster, spell, line) { }
 
@@ -21,8 +21,11 @@ namespace DOL.GS.Spells
         {
             foreach (GameLiving livingTarget in SelectTargets(target))
             {
-                if (livingTarget is GamePlayer playerTarget && Spell.Target is eSpellTarget.CONE)
-                    playerTarget.Out.SendCheckLos(Caster, playerTarget, LosCheckCallback);
+                if (Spell.Target is eSpellTarget.CONE || (Spell.Target is eSpellTarget.ENEMY && Spell.IsPBAoE))
+                {
+                    if (!Caster.castingComponent.StartEndOfCastLosCheck(livingTarget, this))
+                        LaunchBolt(target);
+                }
                 else
                     LaunchBolt(livingTarget);
             }
@@ -47,7 +50,8 @@ namespace DOL.GS.Spells
             MessageToLiving(target, Spell.Message1, eChatType.CT_Spell); // "A bolt of runic energy hits you!"
             Message.SystemToArea(target, Util.MakeSentence(Spell.Message2, target.GetName(0, true)), eChatType.CT_System, target, Caster); // "{0} is hit by a bolt of runic energy!"
 
-            DamageTarget(ad, false, ad.AttackResult == eAttackResult.Blocked ? 0x02 : 0x14);
+            // Don't send a blocking animation even if the spell gets blocked. Otherwise it will also play a punching animation on the caster.
+            DamageTarget(ad, false, 0x14);
             target.StartInterruptTimer(target.SpellInterruptDuration, ad.AttackType, Caster);
         }
 
@@ -58,25 +62,23 @@ namespace DOL.GS.Spells
             double halfBaseDamage = damage * 0.5;
             damage = base.ModifyDamageWithTargetResist(ad, halfBaseDamage);
 
-            if (!ad.Target.attackComponent.CheckBlock(ad) || ad.Target.attackComponent.CheckGuard(ad, false))
-            {
-                // This is normally set in 'AttackComponent.CalculateEnemyAttackResult', but we don't call it.
-                if (ad.Target is GamePlayer playerTarget)
-                    ad.ArmorHitLocation = playerTarget.CalculateArmorHitLocation(ad);
-
-                // We need a fake weapon skill for the target's armor to have something to be compared with.
-                // Since 'damage' is already modified by intelligence, power relics, spell variance, and everything else; we can use a constant only modified by the caster's level.
-                double weaponSkill = Caster.Level * 2.5 + AttackComponent.INHERENT_WEAPON_SKILL;
-                double targetArmor = AttackComponent.CalculateTargetArmor(ad.Target, ad.ArmorHitLocation, out _, out _);
-                damage += weaponSkill / targetArmor * halfBaseDamage;
-            }
-            else
+            if (ad.Target.attackComponent.CheckBlock(null, ad) || ad.Target.attackComponent.CheckGuard(null, ad, false))
             {
                 ad.AttackResult = eAttackResult.Blocked;
-                MessageToLiving(ad.Target, $"You partially block {Caster.GetName(0, false)}'s spell!", eChatType.CT_Missed);
+                MessageToLiving(ad.Target, $"You partially block {Caster.GetName(0, false)}'s spell!", eChatType.CT_Action);
                 MessageToCaster($"{ad.Target.GetName(0, true)} blocks!", eChatType.CT_YouHit);
+                return damage;
             }
 
+            // This is normally set in 'AttackComponent.CalculateEnemyAttackResult', but we don't call it.
+            if (ad.Target is GamePlayer playerTarget)
+                ad.ArmorHitLocation = playerTarget.CalculateArmorHitLocation(ad);
+
+            // We need a fake weapon skill for the target's armor to have something to be compared with.
+            // Since 'damage' is already modified by intelligence, power relics, spell variance, and everything else; we can use a constant only modified by the caster's level.
+            double weaponSkill = Caster.Level * 2.5;
+            double targetArmor = AttackComponent.CalculateTargetArmor(ad.Target, ad.ArmorHitLocation, out _, out _);
+            damage += weaponSkill / targetArmor * halfBaseDamage;
             return damage;
         }
 
@@ -124,7 +126,7 @@ namespace DOL.GS.Spells
             else
                 MessageToCaster($"You miss!", eChatType.CT_YouHit);
 
-            MessageToLiving(target, Caster.GetName(0, false) + " missed!", eChatType.CT_Missed);
+            MessageToLiving(target, Caster.GetName(0, false) + " missed!", eChatType.CT_Action);
         }
 
         public void BaseStartSpell(GameLiving target)
@@ -132,13 +134,10 @@ namespace DOL.GS.Spells
             base.StartSpell(target);
         }
 
-        private void LosCheckCallback(GamePlayer player, LosCheckResponse response, ushort sourceOID, ushort targetOID)
+        public override void OnEndOfCastLosCheck(GameLiving target, LosCheckResponse response)
         {
             if (response is LosCheckResponse.True)
-            {
-                if (Caster.CurrentRegion.GetObject(targetOID) is GameLiving target)
-                    LaunchBolt(target);
-            }
+                LaunchBolt(target);
         }
 
         private void LaunchBolt(GameLiving target)
@@ -149,7 +148,7 @@ namespace DOL.GS.Spells
             foreach (GamePlayer playerInRadius in target.GetPlayersInRadius(WorldMgr.VISIBILITY_DISTANCE))
                 playerInRadius.Out.SendSpellEffectAnimation(Caster, target, m_spell.ClientEffect, (ushort) delay, false, 1);
 
-            new BoltOnTargetTimer(target, this, ticksToTarget);
+            _ = new BoltOnTargetTimer(target, this, ticksToTarget);
         }
 
         protected class BoltOnTargetTimer

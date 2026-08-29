@@ -1,0 +1,96 @@
+using System;
+using System.Numerics;
+using OpenDAoC.Pathing;
+
+namespace DOL.GS
+{
+    public abstract class PathfindingMgrBase : IPathfindingMgr
+    {
+        public PathfindingMgrBase()
+        {
+            DefaultFilters = [EDtPolyFlags.All ^ EDtPolyFlags.Disabled, 0];
+            BlockingDoorAvoidanceFilters = [DefaultFilters[0], EDtPolyFlags.BlockingDoor];
+        }
+
+        public virtual bool Init()
+        {
+            return true;
+        }
+
+        public virtual void Stop() { }
+
+        public virtual bool RegisterDoor(GameDoorBase door)
+        {
+            return true;
+        }
+
+        public virtual bool UpdateDoorFlags(GameDoorBase door)
+        {
+            return true;
+        }
+
+        public virtual PathfindingResult GetPathStraight(Zone zone, Vector3 start, Vector3 end, EDtPolyFlags[] filters, Span<WrappedPathfindingNode> nodes)
+        {
+            return new(PathfindingStatus.NavmeshUnavailable, 0);
+        }
+
+        public virtual Vector3? GetMoveAlongSurface(Zone zone, Vector3 start, Vector3 end, EDtPolyFlags[] filters)
+        {
+            return end;
+        }
+
+        public virtual Vector3? GetRandomPoint(Zone zone, Vector3 position, float radius, EDtPolyFlags[] filters)
+        {
+            return position;
+        }
+
+        public virtual Vector3? GetClosestPoint(Zone zone, Vector3 position, EDtPolyFlags[] filters)
+        {
+            return position;
+        }
+
+        public virtual Vector3? GetClosestPoint(Zone zone, Vector3 position, float xRange, float yRange, float zRange, EDtPolyFlags[] filters)
+        {
+            return position;
+        }
+
+        public virtual Vector3? GetClosestPointInBounds(Zone zone, Vector3 origin, Vector3 minOffset, Vector3 maxOffset, EDtPolyFlags[] filters)
+        {
+            return origin;
+        }
+
+        public virtual Vector3? GetRoofAbove(Zone zone, Vector3 position, float maxHeight, EDtPolyFlags[] filters)
+        {
+            return position;
+        }
+
+        public virtual Vector3? GetFloorBeneath(Zone zone, Vector3 position, float maxDepth, EDtPolyFlags[] filters)
+        {
+            return position;
+        }
+
+        public virtual bool TrySnapToMesh(Zone zone, ref Vector3 position, float range)
+        {
+            return true;
+        }
+
+        public virtual bool HasLineOfSight(Zone zone, Vector3 position, Vector3 target, EDtPolyFlags[] filters)
+        {
+            return true;
+        }
+
+        public virtual Vector3? GetNearestPoly(Zone zone, Vector3 point, EDtPolyFlags[] filters)
+        {
+            return point;
+        }
+
+        public virtual bool HasNavmesh(Zone zone)
+        {
+            return false;
+        }
+
+        public virtual bool IsAvailable => false;
+        public virtual EDtPolyFlags[] DefaultFilters { get; }
+        public virtual EDtPolyFlags[] BlockingDoorAvoidanceFilters { get; }
+    }
+}

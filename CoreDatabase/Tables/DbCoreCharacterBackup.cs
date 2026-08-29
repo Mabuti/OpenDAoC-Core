@@ -76,13 +76,11 @@ namespace DOL.Database
 			this.GainXP = character.GainXP;
 			this.Gender = character.Gender;
 			this.Gold = character.Gold;
-			this.GravestoneRegion = character.GravestoneRegion;
 			this.GuildID = character.GuildID;
 			this.GuildNote = character.GuildNote;
 			this.GuildRank = character.GuildRank;
 			this.HairColor = character.HairColor;
 			this.HairStyle = character.HairStyle;
-			this.HasGravestone = character.HasGravestone;
 			this.Health = character.Health;
             this.IgnoreStatistics = character.IgnoreStatistics;
             this.Intelligence = character.Intelligence;
@@ -132,7 +130,6 @@ namespace DOL.Database
 			this.Region = character.Region;
 			this.RespecAmountAllSkill = character.RespecAmountAllSkill;
 			this.RespecAmountChampionSkill = character.RespecAmountChampionSkill;
-			this.RespecAmountDOL = character.RespecAmountDOL;
 			this.RespecAmountRealmSkill = character.RespecAmountRealmSkill;
 			this.RespecAmountSingleSkill = character.RespecAmountSingleSkill;
 			this.RespecBought = character.RespecBought;
@@ -148,6 +145,7 @@ namespace DOL.Database
 			this.ShowXFireInfo = character.ShowXFireInfo;
 			this.Silver = character.Silver;
 			this.SpellQueue = character.SpellQueue;
+			this.HideGraves = character.HideGraves;
 			this.Strength = character.Strength;
 			this.UsedLevelCommand = character.UsedLevelCommand;
 			this.Xpos = character.Xpos;

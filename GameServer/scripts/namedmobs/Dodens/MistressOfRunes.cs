@@ -1,11 +1,9 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using DOL.AI.Brain;
 using DOL.Database;
 using DOL.Events;
 using DOL.GS;
-using DOL.GS.Effects;
 using DOL.GS.PacketHandler;
 using DOL.GS.Scripts;
 
@@ -75,13 +73,6 @@ namespace DOL.GS.Scripts
 			base.ReturnToSpawnPoint(MaxSpeed);
 		}
 
-		public override void OnAttackedByEnemy(AttackData ad)
-		{
-			if (IsReturningToSpawnPoint)
-				return;
-
-			base.OnAttackedByEnemy(ad);
-		}
 		/// <summary>
 		/// Broadcast relevant messages to the raid.
 		/// </summary>
@@ -97,11 +88,11 @@ namespace DOL.GS.Scripts
 		/// Invoked when Mistress of Runes dies.
 		/// </summary>
 		/// <param name="killer">The living that got the killing blow.</param>
-		public override void Die(GameObject killer)
+		public override void ProcessDeath(GameObject killer)
 		{
 			BroadcastMessage(String.Format(m_DeathAnnounce, Name));
 			base.StopCurrentSpellcast();
-			base.Die(killer);
+			base.ProcessDeath(killer);
 		}
 		[ScriptLoadedEvent]
 		public static void ScriptLoaded(DOLEvent e, object sender, EventArgs args)
@@ -169,32 +160,6 @@ namespace DOL.AI.Brain
 			base.Think();
 		}
 
-		protected override void CheckNpcAggro()
-		{
-			if (Body.attackComponent.AttackState)
-				return;
-
-			foreach (GameNPC npc in Body.GetNPCsInRadius((ushort)AggroRange))
-			{
-				if (!npc.IsAlive || npc.ObjectState != GameObject.eObjectState.Active)
-					continue;
-
-				if (!GameServer.ServerRules.IsAllowedToAttack(Body, npc, true))
-					continue;
-
-				if (AggroList.ContainsKey(npc))
-					continue; // add only new NPCs
-
-				if (npc.Brain != null && npc.Brain is IControlledBrain)
-				{
-					if (CanAggroTarget(npc))
-					{
-						AddToAggroList(npc, (npc.Level + 1) << 1);
-					}
-				}
-			}
-		}
-
 		/// <summary>
 		/// Broadcast relevant messages to the raid.
 		/// </summary>
@@ -213,26 +178,19 @@ namespace DOL.AI.Brain
 		/// <returns>Whether or not a target was picked.</returns>
 		public bool PickNearsightTarget()
 		{
-			MistressOfRunes mistress = Body as MistressOfRunes;
-
-			if (mistress == null)
+			if (Body is not MistressOfRunes mistress)
 				return false;
 
-			ArrayList inRangeLiving = new ArrayList();
+			List<GameLiving> inRangeLivings = GameLoop.GetListForTick<GameLiving>();
 
-			foreach (GameLiving living in AggroList.Keys)
+			foreach (GameLiving living in GetUnorderedAggroList())
 			{
-				if (living != null &&
-					living.IsAlive &&
-					living.EffectList.GetOfType<NecromancerShadeEffect>() == null &&
-					!mistress.IsWithinRadius(living, mistress.attackComponent.AttackRange))
-				{
-					inRangeLiving.Add(living);
-				}
+				if (!mistress.IsWithinRadius(living, mistress.attackComponent.AttackRange))
+					inRangeLivings.Add(living);
 			}
 
-			if (inRangeLiving.Count > 0)
-				return CheckNearsight((GameLiving)(inRangeLiving[Util.Random(1, inRangeLiving.Count) - 1]));
+			if (inRangeLivings.Count > 0)
+				return CheckNearsight(inRangeLivings[Util.Random(0, inRangeLivings.Count - 1)]);
 
 			return false;
 		}
@@ -381,12 +339,11 @@ namespace DOL.AI.Brain
 					spell.Radius = 450;
 					spell.SpellID = 2958;
 					spell.RecastDelay = SpearRecastInterval;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.DirectDamageNoVariance.ToString();
 					spell.MoveCast = false;
 					spell.DamageType = (int)eDamageType.Energy; //Energy DMG Type
 					m_AoESpell = new Spell(spell, 60);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_AoESpell);
 				}
 				return m_AoESpell;
 			}
@@ -421,12 +378,11 @@ namespace DOL.AI.Brain
 					spell.Damage = 0;
 					spell.DamageType = (int)eDamageType.Energy;
 					spell.SpellID = 2735;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.Nearsight.ToString();
 					spell.Message1 = "You are blinded!";
 					spell.Message2 = "{0} is blinded!";
 					m_NearsightSpell = new Spell(spell, 60);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_NearsightSpell);
 				}
 				return m_NearsightSpell;
 			}

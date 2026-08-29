@@ -2,44 +2,51 @@
 using System.Threading;
 using DOL.AI.Brain;
 using DOL.GS.Keeps;
+using DOL.GS.PacketHandler;
+using DOL.GS.Spells;
+using DOL.Language;
 
 namespace DOL.GS
 {
-    public class NpcCastingComponent : CastingComponent
+    public class NpcCastingComponent : CastingComponent, ILosCheckListener
     {
-        private GameNPC _npcOwner;
-        private Dictionary<GameObject, List<SpellWaitingForLosCheck>> _spellsWaitingForLosCheck = new();
-        private Lock _spellsWaitingForLosCheckLock = new();
+        private readonly GameNPC _npcOwner;
+        private readonly Dictionary<GameObject, List<SpellWaitingForLosCheck>> _spellsWaitingForLosCheck = new();
+        private readonly Lock _spellsWaitingForLosCheckLock = new();
+        private readonly QueuedCastLosCheckListener _queuedCastLosCheckListener;
 
+        public override SpellHandler QueuedSpellHandler
+        {
+            get => base.QueuedSpellHandler;
+            protected set
+            {
+                base.QueuedSpellHandler = value;
+
+                if (base.QueuedSpellHandler != null)
+                    StartQueuedCastLosCheck();
+                else
+                    _queuedCastLosCheckListener.StopAndClear();
+            }
+        }
+
+        public GameLiving LastNegativeLosCheckTarget { get; private set; }
         private bool IsCasterGuardOrImmobile => _npcOwner is GuardCaster || _npcOwner.MaxSpeedBase == 0;
 
         public NpcCastingComponent(GameNPC npcOwner) : base(npcOwner)
         {
             _npcOwner = npcOwner;
+            _queuedCastLosCheckListener = new(this);
         }
 
-        public override bool RequestCastSpell(Spell spell, SpellLine spellLine, ISpellCastingAbilityHandler spellCastingAbilityHandler = null, GameLiving target = null)
+        protected override bool RequestCastSpellInternal(
+            Spell spell,
+            SpellLine spellLine,
+            ISpellCastingAbilityHandler spellCastingAbilityHandler,
+            GameLiving target,
+            GamePlayer losChecker)
         {
-            // `spellCastingAbilityHandler` is unused for NPCs.
-
-            if (target == _npcOwner || target == null)
-                return RequestCastSpellInternal(spell, spellLine, null, target);
-
-            GamePlayer losChecker = target as GamePlayer;
-
-            if (losChecker == null && _npcOwner.Brain is IControlledBrain controlledBrain)
-                losChecker = controlledBrain.GetPlayerOwner();
-
-            if (losChecker == null && _npcOwner.Brain is StandardMobBrain brain)
-            {
-                List<GamePlayer> playersInRadius = _npcOwner.GetPlayersInRadius(WorldMgr.VISIBILITY_DISTANCE);
-
-                if (playersInRadius.Count > 0)
-                    losChecker = playersInRadius[Util.Random(playersInRadius.Count - 1)];
-            }
-
             if (losChecker == null)
-                return RequestCastSpellInternal(spell, spellLine, null, target);
+                return base.RequestCastSpellInternal(spell, spellLine, spellCastingAbilityHandler, target, null);
 
             SpellWaitingForLosCheck spellWaitingForLosCheck = new(spell, spellLine);
 
@@ -51,16 +58,16 @@ namespace DOL.GS
                     _spellsWaitingForLosCheck[target] = [spellWaitingForLosCheck];
             }
 
-            losChecker.Out.SendCheckLos(_npcOwner, target, CastSpellLosCheckReply);
-            return true; // Consider the NPC is casting while waiting for the reply to prevent it from moving.
+            losChecker.Out.SendLosCheckRequest(_npcOwner, target, this);
+
+            // Consider the NPC is casting until we know it doesn't have LoS against this target.
+            // This prevents it from moving while waiting for a LoS check.
+            return LastNegativeLosCheckTarget != target;
         }
 
-        public override void OnSpellCast(Spell spell)
+        protected override GamePlayer GetLosChecker(GameLiving target)
         {
-            if (!spell.IsHarmful || !spell.IsInstantCast)
-                return;
-
-            _npcOwner.ApplyInstantHarmfulSpellDelay();
+            return _npcOwner.Brain.GetLosChecker(target);
         }
 
         public override void ClearSpellHandlers()
@@ -75,23 +82,65 @@ namespace DOL.GS
             if (_npcOwner.Brain is NecromancerPetBrain necromancerPetBrain)
                 necromancerPetBrain.ClearSpellQueue();
 
+            LastNegativeLosCheckTarget = null;
             base.ClearSpellHandlers();
         }
 
-        public bool IsAllowedToFollow(GameObject target)
+        public override void OnOutOfRangeOrNoLos(GameObject target)
         {
-            if (!IsCasterGuardOrImmobile)
-                return true;
+            if (QueuedSpellHandler?.Target == target)
+                ClearQueuedSpellHandler();
 
-            if (target is not GameLiving livingTarget)
-                return false;
+            // Immobile NPCs and caster guards forget about the target.
+            if (IsCasterGuardOrImmobile)
+            {
+                // Keep the target in the aggro list while the NPC is still casting.
+                // This ensures that the NPC doesn't enter an idle state, potentially interfering with spell casting.
+                if (!_npcOwner.IsCasting)
+                    (_npcOwner.Brain as StandardMobBrain)?.RemoveFromAggroList(target as GameLiving);
 
-            return livingTarget.ActiveWeaponSlot is not eActiveWeaponSlot.Distance && livingTarget.IsWithinRadius(_npcOwner, livingTarget.attackComponent.AttackRange);
+                return;
+            }
+
+            if (_npcOwner.TargetObject == target)
+                LastNegativeLosCheckTarget = target as GameLiving;
         }
 
-        private void CastSpellLosCheckReply(GamePlayer losChecker, LosCheckResponse response, ushort sourceOID, ushort targetOID)
+        public override void OnSpellCast(Spell spell)
         {
-            GameObject target = _npcOwner.CurrentRegion.GetObject(targetOID);
+            if (!spell.IsHarmful || !spell.IsInstantCast)
+                return;
+
+            _npcOwner.ApplyInstantHarmfulSpellDelay();
+        }
+
+        public override void PromoteQueuedSpellHandler()
+        {
+            if (_npcOwner.Brain is StandardMobBrain brain)
+            {
+                if (brain is NecromancerPetBrain necroBrain)
+                    necroBrain.CheckAttackSpellQueue();
+
+                if (QueuedSpellHandler != null)
+                {
+                   if (!brain.CanSpellStillBeCastOnTarget(QueuedSpellHandler.Spell, QueuedSpellHandler.Target))
+                        QueuedSpellHandler = null;
+                }
+            }
+
+            base.PromoteQueuedSpellHandler();
+        }
+
+        protected override void Stop()
+        {
+            base.Stop();
+            _queuedCastLosCheckListener.StopAndClear();
+            LastNegativeLosCheckTarget = null;
+        }
+
+        public void HandleLosCheckResponse(GamePlayer losChecker, LosCheckResponse response, ushort targetId)
+        {
+            GameObject target = _npcOwner.CurrentRegion.GetObject(targetId);
 
             if (target == null)
                 return;
@@ -101,33 +150,93 @@ namespace DOL.GS
                 if (!_spellsWaitingForLosCheck.TryGetValue(target, out var list))
                     return;
 
-                bool success = response is LosCheckResponse.True;
-
-                foreach (SpellWaitingForLosCheck spellWaitingForLosCheck in list)
+                if (response is LosCheckResponse.True)
                 {
-                    Spell spell = spellWaitingForLosCheck.Spell;
-                    SpellLine spellLine = spellWaitingForLosCheck.SpellLine;
+                    foreach (SpellWaitingForLosCheck spellWaitingForLosCheck in list)
+                    {
+                        Spell spell = spellWaitingForLosCheck.Spell;
+                        SpellLine spellLine = spellWaitingForLosCheck.SpellLine;
 
-                    if (success && spellLine != null && spell != null)
-                        RequestCastSpellInternal(spell, spellLine, null, target as GameLiving, losChecker);
-                    else
-                        _npcOwner.OnCastSpellLosCheckFail(target);
+                        if (spellLine != null && spell != null)
+                            base.RequestCastSpellInternal(spell, spellLine, null, target as GameLiving, losChecker);
+                    }
+                }
+                else
+                {
+                    OnOutOfRangeOrNoLos(target);
+
+                    if (_npcOwner is NecromancerPet necromancerPet && necromancerPet.Owner is GamePlayer playerOwner)
+                    {
+                        string message = LanguageMgr.GetTranslation(playerOwner.Client.Account.Language, "AI.Brain.Necromancer.PetCantSeeTarget", _npcOwner.Name);
+                        NecromancerPetBrain.MessageToOwner(message, eChatType.CT_SpellResisted, playerOwner);
+                    }
                 }
 
                 list.Clear();
             }
         }
 
-        private readonly struct SpellWaitingForLosCheck
+        private void StartQueuedCastLosCheck()
         {
-            public readonly Spell Spell;
-            public readonly SpellLine SpellLine;
-
-            public SpellWaitingForLosCheck(Spell spell, SpellLine spellLine)
+            if (_queuedCastLosCheckListener.IsAlive)
             {
-                Spell = spell;
-                SpellLine = spellLine;
+                if (_queuedCastLosCheckListener.QueuedSpellHandler == QueuedSpellHandler)
+                    return;
+
+                _queuedCastLosCheckListener.StopAndClear();
+            }
+
+            if (QueuedSpellHandler.LosChecker == null)
+            {
+                QueuedSpellHandler.HasLos = true;
+                return;
+            }
+
+            GameLiving target = QueuedSpellHandler.Target;
+
+            if (target == null || target == Owner)
+            {
+                QueuedSpellHandler.HasLos = true;
+                return;
+            }
+
+            _queuedCastLosCheckListener.QueuedSpellHandler = QueuedSpellHandler;
+            _queuedCastLosCheckListener.Start();
+        }
+
+        private class QueuedCastLosCheckListener : ECSGameTimerWrapperBase, ILosCheckListener
+        {
+            public SpellHandler QueuedSpellHandler { get; set; }
+
+            public QueuedCastLosCheckListener(CastingComponent castingComponent) : base(castingComponent.Owner)
+            {
+                Interval = ServerProperties.Properties.CHECK_LOS_DURING_CAST_MINIMUM_INTERVAL;
+            }
+
+            public void HandleLosCheckResponse(GamePlayer player, LosCheckResponse response, ushort targetId)
+            {
+                if (QueuedSpellHandler == null)
+                    return;
+
+                QueuedSpellHandler.HasLos = response is LosCheckResponse.True;
+            }
+
+            public void StopAndClear()
+            {
+                Stop();
+                QueuedSpellHandler = null;
+            }
+
+            protected override int OnTick(ECSGameTimer timer)
+            {
+                if (QueuedSpellHandler == null)
+                    return 0;
+
+                QueuedSpellHandler.LosChecker.Out.SendLosCheckRequest(Owner, QueuedSpellHandler.Target, this);
+                return Interval;
             }
         }
+
+        private readonly record struct SpellWaitingForLosCheck(Spell Spell, SpellLine SpellLine);
     }
 }

@@ -58,7 +58,6 @@ namespace DOL.GS
 		public override short Quickness { get => base.Quickness; set => base.Quickness = 80; }
 		public override short Strength { get => base.Strength; set => base.Strength = 200; }
 		#endregion
-		public static bool IsKilled = false;
 		public override bool AddToWorld()
 		{			
 			Name = "Melancholic Fairy Queen";
@@ -68,7 +67,6 @@ namespace DOL.GS
 			TetherRange = 2600;
 			Flags = eFlags.FLYING;
 			MaxSpeedBase = 250;
-			IsKilled = false;
 
 			RespawnInterval = ServerProperties.Properties.SET_EPIC_GAME_ENCOUNTER_RESPAWNINTERVAL * 60000;//1min is 60000 miliseconds
 			MelancholicFairyQueenBrain sbrain = new MelancholicFairyQueenBrain();
@@ -78,16 +76,15 @@ namespace DOL.GS
 			base.AddToWorld();
 			return true;
 		}
-        public override void Die(GameObject killer)
+        public override void ProcessDeath(GameObject killer)
         {
-			IsKilled = true;
 			foreach (GameNPC adds in GetNPCsInRadius(8000))
 			{
 				if (adds != null && adds.IsAlive && adds.Brain is MFQGuardsBrain)
 					adds.RemoveFromWorld();
 			}
-			base.Die(killer);
-        }      
+			base.ProcessDeath(killer);
+        }
 	}
 }
 namespace DOL.AI.Brain
@@ -201,12 +198,11 @@ namespace DOL.AI.Brain
 					spell.Name = "Heat Beam";
 					spell.Range = 1500;
 					spell.SpellID = 11896;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.DirectDamageNoVariance.ToString();
 					spell.Uninterruptible = true;
 					spell.MoveCast = true;
 					m_MFQDD = new Spell(spell, 60);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_MFQDD);
 				}
 				return m_MFQDD;
 			}

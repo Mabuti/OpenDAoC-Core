@@ -73,7 +73,7 @@ namespace DOL.AI.Brain
             AggroRange = 600;
             ThinkInterval = 2000;
         }
-        public static bool IsPulled = false;
+        public bool IsPulled = false;
         public override void OnAttackedByEnemy(AttackData ad)
         {
             if (IsPulled == false)
@@ -130,10 +130,9 @@ namespace DOL.AI.Brain
                     spell.Name = "Frost Shock";
                     spell.Range = 1500;
                     spell.SpellID = 11927;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = eSpellType.DirectDamageNoVariance.ToString();
                     m_VagnDD = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_VagnDD);
                 }
                 return m_VagnDD;
             }
@@ -213,7 +212,7 @@ namespace DOL.AI.Brain
             AggroRange = 600;
             ThinkInterval = 2000;
         }
-        public static bool IsPulled2 = false;
+        public bool IsPulled2 = false;
         public override void OnAttackedByEnemy(AttackData ad)
         {
             if (IsPulled2 == false)

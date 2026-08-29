@@ -30,9 +30,9 @@ namespace DOL.GS.RealmAbilities
 				 return;
 			 }*/
 
-			if (player.TempProperties.GetProperty<bool>("Charging") || player.effectListComponent.ContainsEffectForEffectType(eEffect.SpeedOfSound))
+			if (player.TempProperties.GetProperty<bool>("Charging"))
 			{
-				player.Out.SendMessage("You already an effect of that type!", eChatType.CT_SpellResisted, eChatLoc.CL_SystemWindow);
+				player.Out.SendMessage("You already have an effect of that type!", eChatType.CT_SpellResisted, eChatLoc.CL_SystemWindow);
 				return;
 			}
 
@@ -60,7 +60,7 @@ namespace DOL.GS.RealmAbilities
 				//send spelleffect
 				foreach (GamePlayer visPlayer in target.GetPlayersInRadius(WorldMgr.VISIBILITY_DISTANCE))
 					visPlayer.Out.SendSpellEffectAnimation(player, target, 7021, 0, false, CastSuccess(true));
-				ECSGameEffectFactory.Create(new(target, m_duration, 1), static (in ECSGameEffectInitParams i) => new SpeedOfSoundECSEffect(i));
+				ECSGameEffectFactory.Create(new(target, m_duration, 1), static (in i) => new SpeedOfSoundECSEffect(i));
 			}
 
 		}

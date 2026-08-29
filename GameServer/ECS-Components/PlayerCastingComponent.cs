@@ -12,6 +12,11 @@ namespace DOL.GS
             _playerOwner = playerOwner;
         }
 
+        protected override GamePlayer GetLosChecker(GameLiving target)
+        {
+            return _playerOwner;
+        }
+
         protected override bool CanCastSpell()
         {
             if (_playerOwner.effectListComponent.ContainsEffectForEffectType(eEffect.Volley))
@@ -64,7 +69,7 @@ namespace DOL.GS
                 if (moving)
                     _playerOwner.Out.SendMessage("You move and interrupt your focus!", eChatType.CT_Important, eChatLoc.CL_SystemWindow);
                 else
-                    _playerOwner.Out.SendMessage($"You lose your focus on your spell.", eChatType.CT_SpellExpires, eChatLoc.CL_SystemWindow);
+                    _playerOwner.Out.SendMessage("You lose your focus on your spell.", eChatType.CT_SpellExpires, eChatLoc.CL_SystemWindow);
             }
             else if (moving)
                 _playerOwner.Out.SendMessage(LanguageMgr.GetTranslation(_playerOwner.Client, "SpellHandler.CasterMove"), eChatType.CT_Important, eChatLoc.CL_SystemWindow);

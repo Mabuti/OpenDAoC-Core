@@ -1001,11 +1001,8 @@ namespace DOL.GS.Quests
 				return true;
 			}
 
-			foreach (AbstractQuest quest in player.QuestList.Keys)
-			{
-				if (quest is DataQuest dataQuest && dataQuest.ID == ID)
-					return false; // player is currently doing this quest
-			}
+			if (player.IsDoingDataQuest(ID))
+				return false; // player is currently doing this quest
 
 			List<AbstractQuest> finishedQuests = player.GetFinishedQuests();
 
@@ -1468,7 +1465,7 @@ namespace DOL.GS.Quests
 				return 0;
 			}
             int currentLevel = player.Level;
-            if (currentLevel > player.MaxLevel)
+            if (currentLevel > GamePlayer.MAX_LEVEL)
                 return 0;
             long experienceToLevel = player.GetExperienceNeededForLevel(currentLevel + 1) -
                 player.GetExperienceNeededForLevel(currentLevel);
@@ -3043,8 +3040,7 @@ namespace DOL.GS.Quests
 			// Remove this quest from the players active quest list and either
 			// Add or update the quest in the players finished list
 
-			if (m_questPlayer.QuestList.TryRemove(this, out byte value))
-				m_questPlayer.AvailableQuestIndexes.Enqueue(value);
+			m_questPlayer.RemoveQuest(this, notifyPlayer: false);
 
 			bool add = true;
 
@@ -3124,8 +3120,7 @@ namespace DOL.GS.Quests
 		{
 			if (m_questPlayer == null || m_charQuest == null || m_charQuest.IsPersisted == false) return;
 
-			if (m_questPlayer.QuestList.TryRemove(this, out byte value))
-				m_questPlayer.AvailableQuestIndexes.Enqueue(value);
+			m_questPlayer.RemoveQuest(this, notifyPlayer: false);
 
 			if (m_charQuest.Count == 0)
 			{

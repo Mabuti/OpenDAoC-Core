@@ -67,10 +67,10 @@ namespace DOL.GS
             // Only Animist pets are excluded (they also store their spells differently).
             // Necromancer and Hunter pets don't possess any spell.
             if ((Brain as IControlledBrain)?.GetPlayerOwner()?.CharacterClass is ClassTheurgist or ClassCabalist or ClassSpiritmaster or ClassBonedancer or ClassEnchanter or ClassDruid)
-                ScalSpells();
+                ScaleSpells();
         }
 
-        private void ScalSpells()
+        private void ScaleSpells()
         {
             if (CanCastHarmfulSpells)
             {
@@ -111,7 +111,7 @@ namespace DOL.GS
 
         public override double GetSpellScalingFactor()
         {
-            return Level / (double) Properties.PET_SCALE_SPELL_MAX_LEVEL;
+            return Level / Math.Floor(GamePlayer.MAX_LEVEL * Math.Abs(SummonSpellDamage) / 100);
         }
 
         public override void SetStats(DbMob dbMob = null)

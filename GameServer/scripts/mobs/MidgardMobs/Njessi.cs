@@ -1,7 +1,7 @@
-﻿using System.Collections.Generic;
-using DOL.AI.Brain;
+﻿using DOL.AI.Brain;
 using DOL.Database;
 using DOL.GS;
+using DOL.GS.Movement;
 
 namespace DOL.GS
 {
@@ -11,10 +11,23 @@ namespace DOL.GS
 
         public override bool IsVisibleToPlayers => true; //mob brain will work if there are 0 players around
 
+        private const short PATROL_SPEED = 120;
+
+        private static readonly (int X, int Y, int Z)[] _patrolPoints =
+        [
+            (783055, 882613, 4613),
+            (781504, 886149, 4613),
+            (788057, 899051, 4613),
+            (797231, 909562, 4613),
+            (791084, 894015, 4613),
+            (788652, 887943, 4613)
+        ];
+
         public override bool AddToWorld()
 		{
 			INpcTemplate npcTemplate = NpcTemplateMgr.GetTemplate(60164504);
 			LoadTemplate(npcTemplate);
+            CurrentPathPoint = MovementMgr.CreatePath(EPathType.Loop, PATROL_SPEED, _patrolPoints);
 
             NjessiBrain sbrain = new NjessiBrain();
 			SetOwnBrain(sbrain);
@@ -23,10 +36,6 @@ namespace DOL.GS
 			base.AddToWorld();
 			return true;
 		}
-        public override void ReturnToSpawnPoint(short speed)
-        {
-            return;
-        }
         public override void OnAttackEnemy(AttackData ad) //on enemy actions
         {
             if (Util.Chance(10) && !ad.Target.IsPoisoned)
@@ -62,10 +71,9 @@ namespace DOL.GS
                     spell.Range = 500;
                     spell.Radius = 300;
                     spell.SpellID = 11933;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = eSpellType.DirectDamageNoVariance.ToString();
                     m_NjessiDD = new Spell(spell, 20);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_NjessiDD);
                 }
                 return m_NjessiDD;
             }
@@ -100,7 +108,6 @@ namespace DOL.GS
                     spell.DamageType = (int)eDamageType.Body;
                     spell.Uninterruptible = true;
                     m_NjessiPoison = new Spell(spell, 20);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_NjessiPoison);
                 }
                 return m_NjessiPoison;
             }
@@ -118,50 +125,21 @@ namespace DOL.AI.Brain
 			AggroLevel = 100;
 			AggroRange = 600;
 			ThinkInterval = 1500;
-            
-            _roamingPathPoints.Add(new Point3D(783055, 882613, 4613));
-            _roamingPathPoints.Add(new Point3D(781504, 886149, 4613));
-            _roamingPathPoints.Add(new Point3D(788057, 899051, 4613));
-            _roamingPathPoints.Add(new Point3D(797231, 909562, 4613));
-            _roamingPathPoints.Add(new Point3D(791084, 894015, 4613));
-            _roamingPathPoints.Add(new Point3D(788652, 887943, 4613));
 		}
-		
-		private List<Point3D> _roamingPathPoints = new List<Point3D>();
-        private int _lastRoamIndex = 0;
-        
+
         public override void Think()
 		{
-			
-            Point3D spawn = new Point3D(Body.SpawnPoint.X, Body.SpawnPoint.Y, Body.SpawnPoint.Z);
-            #region WalkPoints
-            if (!Body.InCombat && !HasAggro)
-            {
-
-	            if (Body.IsWithinRadius(_roamingPathPoints[_lastRoamIndex], 100))
-	            {
-		            _lastRoamIndex++;
-	            }
-
-	            if (_lastRoamIndex >= _roamingPathPoints.Count)
-	            {
-		            _lastRoamIndex = 0;
-	            }
-	            else if(!Body.IsMoving) Body.WalkTo(_roamingPathPoints[_lastRoamIndex], 120);
-                
-            }
-            #endregion
             if (Body.IsAlive)
             {
                 foreach (GamePlayer player in Body.GetPlayersInRadius((ushort)AggroRange))
                 {
                     if (player != null && player.IsAlive && player.Client.Account.PrivLevel == 1)
-                        AggroList.TryAdd(player, new(10));
+                        AddToAggroList(player);
                 }
                 foreach (GameNPC npc in Body.GetNPCsInRadius((ushort)AggroRange))
                 {
                     if (npc != null && npc.IsAlive && npc.Realm != Body.Realm)
-                        AggroList.TryAdd(npc, new(10));
+                        AddToAggroList(npc);
                 }
             }
             base.Think();

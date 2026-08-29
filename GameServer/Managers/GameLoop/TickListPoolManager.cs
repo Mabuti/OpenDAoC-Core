@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using DOL.GS.Housing;
 using DOL.GS.Keeps;
 
 namespace DOL.GS
@@ -17,10 +18,12 @@ namespace DOL.GS
                 { typeof(GameStaticItem), PooledListKey.Item },
                 { typeof(GameDoorBase), PooledListKey.Door },
                 { typeof(GameKeepComponent), PooledListKey.KeepComponent },
+                { typeof(House), PooledListKey.House },
                 { typeof(ECSGameEffect), PooledListKey.Effect },
                 { typeof(ECSGameSpellEffect), PooledListKey.SpellEffect },
                 { typeof(ECSPulseEffect), PooledListKey.PulseEffect },
-                { typeof(ECSGameAbilityEffect), PooledListKey.AbilityEffect }
+                { typeof(ECSGameAbilityEffect), PooledListKey.AbilityEffect },
+                { typeof(IArea), PooledListKey.Area }
             }.ToFrozenDictionary();
 
         private readonly FrozenDictionary<PooledListKey, TickPoolBase> _pools =
@@ -33,10 +36,12 @@ namespace DOL.GS
                 { PooledListKey.Item, new TickListPool<GameStaticItem>() },
                 { PooledListKey.Door, new TickListPool<GameDoorBase>() },
                 { PooledListKey.KeepComponent, new TickListPool<GameKeepComponent>() },
+                { PooledListKey.House, new TickListPool<House>() },
                 { PooledListKey.Effect, new TickListPool<ECSGameEffect>() },
                 { PooledListKey.SpellEffect, new TickListPool<ECSGameSpellEffect>() },
                 { PooledListKey.PulseEffect, new TickListPool<ECSPulseEffect>() },
-                { PooledListKey.AbilityEffect, new TickListPool<ECSGameAbilityEffect>() }
+                { PooledListKey.AbilityEffect, new TickListPool<ECSGameAbilityEffect>() },
+                { PooledListKey.Area, new TickListPool<IArea>() }
             }.ToFrozenDictionary();
 
         public List<T> GetForTick<T>() where T : IPooledList<T>
@@ -66,10 +71,12 @@ namespace DOL.GS
         Item,
         Door,
         KeepComponent,
+        House,
         Effect,
         SpellEffect,
         PulseEffect,
-        AbilityEffect
+        AbilityEffect,
+        Area
     }
 
     public interface IPooledList<T> { }

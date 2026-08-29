@@ -33,7 +33,7 @@ namespace DOL.GS
                 if (value > 0)
                     _removeDelay = value;
 
-                if (_removeItemAction.IsAlive)
+                if (_removeItemAction?.IsAlive == true)
                     _removeItemAction.Start((int) _removeDelay);
             }
         }
@@ -50,7 +50,7 @@ namespace DOL.GS
 
         public override bool RemoveFromWorld()
         {
-            if (RemoveFromWorld(RespawnInterval))
+            if (base.RemoveFromWorld())
             {
                 _removeItemAction?.Stop();
                 return true;

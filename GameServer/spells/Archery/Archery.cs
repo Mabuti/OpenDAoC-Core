@@ -117,7 +117,7 @@ namespace DOL.GS.Spells
 						player = target as GamePlayer;
 						player.Out.SendMessage("A shot penetrated your magic barrier!", eChatType.CT_SpellResisted, eChatLoc.CL_SystemWindow);
 						ad.AttackResult = eAttackResult.HitUnstyled;
-						bladeturn.Stop();
+						bladeturn.End();
 						break;
 					}
 					case (int)eShotType.Other:
@@ -133,7 +133,7 @@ namespace DOL.GS.Spells
 							player = target as GamePlayer;
 							player.Out.SendMessage("The blow was absorbed by a magical barrier!", eChatType.CT_SpellResisted, eChatLoc.CL_SystemWindow);
 							ad.AttackResult = eAttackResult.Missed;
-							bladeturn.Stop();
+							bladeturn.End();
 						}
 						break;
 					}
@@ -195,7 +195,7 @@ namespace DOL.GS.Spells
 				Caster.LastAttackTickPvE = GameLoop.GameLoopTime;
 				Caster.LastAttackTickPvP = GameLoop.GameLoopTime;
 
-				foreach (GameLiving npc in WorldMgr.GetNPCsCloseToSpot(Caster.CurrentRegionID, Caster.GroundTarget.X, Caster.GroundTarget.Y, Caster.GroundTarget.Z, (ushort)Spell.Radius))
+				foreach (GameLiving npc in WorldMgr.GetNPCsCloseToSpot(Caster.CurrentRegionID, Caster.GroundTarget, (ushort)Spell.Radius))
 				{
 					if (npc.Realm == 0 || Caster.Realm == 0)
 					{
@@ -241,29 +241,7 @@ namespace DOL.GS.Spells
 			#endregion
 			return (int)(Caster.MaxEndurance * (Spell.Power * .01));
 		}
-		
-		public override bool CasterIsAttacked(GameLiving attacker)
-		{
-			if (Spell.Uninterruptible)
-				return false;
 
-			if (IsInCastingPhase)
-			{
-				double chance = 65;
-				chance = Math.Max(1, chance);
-				chance = Math.Min(99, chance);
-				if (attacker is GamePlayer) chance = 100;
-				if (Util.Chance((int)chance))
-				{
-					Caster.TempProperties.SetProperty(INTERRUPT_TIMEOUT_PROPERTY, GameLoop.GameLoopTime + Caster.SpellInterruptDuration);
-					MessageToLiving(Caster, attacker.GetName(0, true) + " attacks you and your shot is interrupted!", eChatType.CT_SpellResisted);
-					InterruptCasting(false);
-					return true;
-				}
-			}
-			return true;
-		}
-		
 		public override IList<string> DelveInfo
 		{
 			get

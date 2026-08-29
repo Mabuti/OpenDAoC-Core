@@ -1,15 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Reflection;
 using System.Threading;
 using DOL.GS;
-using DOL.GS.Effects;
 using DOL.GS.PacketHandler;
 using DOL.GS.RealmAbilities;
 using DOL.GS.ServerProperties;
 using DOL.GS.SkillHandler;
-using DOL.GS.Spells;
 
 namespace DOL.AI.Brain
 {
@@ -27,9 +26,7 @@ namespace DOL.AI.Brain
 		public const short MIN_OWNER_FOLLOW_DIST = 80;
 		public const short MAX_OWNER_FOLLOW_DIST = 10000;
 
-		protected int m_tempX = 0;
-		protected int m_tempY = 0;
-		protected int m_tempZ = 0;
+		protected Vector3? _tempPosition;
 
 		/// <summary>
 		/// Holds the controlling player of this brain
@@ -85,14 +82,7 @@ namespace DOL.AI.Brain
 			set { m_isMainPet = value; }
 		}
 
-		/// <summary>
-		/// The interval for thinking, set via server property, default is 1500 or every 1.5 seconds
-		/// </summary>
-		public override int ThinkInterval
-		{
-			get { return GS.ServerProperties.Properties.PET_THINK_INTERVAL; }
-		}
-
+		public override int ThinkInterval => Properties.PET_THINK_INTERVAL;
 		protected override int ThinkOffsetOnStart => 0;
 
 		#region Control
@@ -209,14 +199,7 @@ namespace DOL.AI.Brain
                 if (m_aggressionState is eAggressionState.Passive)
                 {
                     Disengage();
-
-                    if (WalkState == eWalkState.Follow)
-                        FollowOwner();
-                    else if (m_tempX > 0 && m_tempY > 0 && m_tempZ > 0)
-                    {
-                        Body.StopFollowing();
-                        Body.WalkTo(new Point3D(m_tempX, m_tempY, m_tempZ), Body.MaxSpeed);
-                    }
+                    ResumeWalkState();
                 }
             }
         }
@@ -249,15 +232,6 @@ namespace DOL.AI.Brain
 				AggressionState = eAggressionState.Defensive;
 		}
 
-		public virtual void Disengage()
-		{
-			m_orderAttackTarget = null;
-			ClearAggroList();
-			Body.StopAttack();
-			Body.StopCurrentSpellcast();
-			Body.TargetObject = null;
-		}
-
 		/// <summary>
 		/// Follow the target on command
 		/// </summary>
@@ -273,9 +247,7 @@ namespace DOL.AI.Brain
 		/// </summary>
 		public virtual void Stay()
 		{
-			m_tempX = Body.X;
-			m_tempY = Body.Y;
-			m_tempZ = Body.Z;
+			_tempPosition = new(Body.X, Body.Y, Body.Z);
 			WalkState = eWalkState.Stay;
 			Body.StopMoving();
 		}
@@ -285,9 +257,7 @@ namespace DOL.AI.Brain
 		/// </summary>
 		public virtual void ComeHere()
 		{
-			m_tempX = Owner.X;
-			m_tempY = Owner.Y;
-			m_tempZ = Owner.Z;
+			_tempPosition = new(Owner.X, Owner.Y, Owner.Z);
 			WalkState = eWalkState.ComeHere;
 			Body.StopFollowing();
 			Body.PathTo(Owner, Body.MaxSpeed);
@@ -299,9 +269,7 @@ namespace DOL.AI.Brain
 		/// <param name="target"></param>
 		public virtual void Goto(GameObject target)
 		{
-			m_tempX = target.X;
-			m_tempY = target.Y;
-			m_tempZ = target.Z;
+			_tempPosition = new(target.X, target.Y, target.Z);
 			WalkState = eWalkState.GoTarget;
 			Body.StopFollowing();
 			Body.PathTo(target, Body.MaxSpeed);
@@ -325,9 +293,6 @@ namespace DOL.AI.Brain
 		/// </summary>
 		public virtual void FollowOwner()
 		{
-			if (Body.IsAttacking)
-				Disengage();
-
 			if (Owner is GamePlayer
 			    && IsMainPet
 			    && ((GamePlayer)Owner).CharacterClass.ID != (int)eCharacterClass.Animist
@@ -399,9 +364,9 @@ namespace DOL.AI.Brain
 								break;
 
 							if (existingEffectFromAnotherSource != null)
-								existingEffectFromAnotherSource.Stop();
+								existingEffectFromAnotherSource.End();
 
-							ECSGameEffectFactory.Create(new(Body, 0, 1, null), Body, playerOwner, static (in ECSGameEffectInitParams i, GameNPC body, GamePlayer owner) => new InterceptECSGameEffect(i, body, owner));
+							ECSGameEffectFactory.Create(new(Body, 0, 1, null), Body, playerOwner, static (in i, body, owner) => new InterceptECSGameEffect(i, body, owner));
 						}
 
 						break;
@@ -418,9 +383,9 @@ namespace DOL.AI.Brain
 								break;
 
 							if (existingEffectFromAnotherSource != null)
-								existingEffectFromAnotherSource.Stop();
+								existingEffectFromAnotherSource.End();
 
-							ECSGameEffectFactory.Create(new(Body, 0, 1), Body, playerOwner, static (in ECSGameEffectInitParams i, GameNPC body, GamePlayer owner) => new GuardECSGameEffect(i, body, owner));
+							ECSGameEffectFactory.Create(new(Body, 0, 1), Body, playerOwner, static (in i, body, owner) => new GuardECSGameEffect(i, body, owner));
 						}
 
 						break;
@@ -437,9 +402,9 @@ namespace DOL.AI.Brain
 								break;
 
 							if (existingEffectFromAnotherSource != null)
-								existingEffectFromAnotherSource.Stop();
+								existingEffectFromAnotherSource.End();
 
-							ECSGameEffectFactory.Create(new(Body, 0, 1), Body, playerOwner, static (in ECSGameEffectInitParams i, GameNPC body, GamePlayer owner) => new ProtectECSGameEffect(i, body, owner));
+							ECSGameEffectFactory.Create(new(Body, 0, 1), Body, playerOwner, static (in i, body, owner) => new ProtectECSGameEffect(i, body, owner));
 						}
 
 						break;
@@ -462,316 +427,93 @@ namespace DOL.AI.Brain
 			}
 		}
 
-        protected override GameLiving FindTargetForDefensiveSpell(Spell spell)
-        {
-            GameLiving target = null;
+		protected virtual bool CanCastDefensiveSpellsOnGroupMembers => true;
+		protected override int HealThreshold => Properties.PET_HEAL_THRESHOLD;
+		protected override bool UseEmergencyHeal => true;
 
-            switch (spell.SpellType)
-            {
-                #region Buffs
+		protected override List<GameLiving> GetPrioritizedTargetsForDefensiveSpell(Spell spell)
+		{
+			// Prioritization order: Player owner, npc owner, self, own minions, npc owner's minion, group members (if allowed).
 
-                case eSpellType.AcuityBuff:
-                case eSpellType.AFHitsBuff:
-                case eSpellType.AllMagicResistBuff:
-                case eSpellType.AllSecondaryMagicResistsBuff:
-                case eSpellType.ArmorAbsorptionBuff:
-                case eSpellType.BaseArmorFactorBuff:
-                case eSpellType.SpecArmorFactorBuff:
-                case eSpellType.PaladinArmorFactorBuff:
-                case eSpellType.BodyResistBuff:
-                case eSpellType.BodySpiritEnergyBuff:
-                case eSpellType.Buff:
-                case eSpellType.CelerityBuff:
-                case eSpellType.ColdResistBuff:
-                case eSpellType.CombatSpeedBuff:
-                case eSpellType.ConstitutionBuff:
-                case eSpellType.CourageBuff:
-                case eSpellType.CrushSlashTrustBuff:
-                case eSpellType.DexterityBuff:
-                case eSpellType.DexterityQuicknessBuff:
-                case eSpellType.EffectivenessBuff:
-                case eSpellType.EnduranceRegenBuff:
-                case eSpellType.EnergyResistBuff:
-                case eSpellType.FatigueConsumptionBuff:
-                case eSpellType.FlexibleSkillBuff:
-                case eSpellType.HasteBuff:
-                case eSpellType.HealthRegenBuff:
-                case eSpellType.HeatColdMatterBuff:
-                case eSpellType.HeatResistBuff:
-                case eSpellType.HeroismBuff:
-                case eSpellType.KeepDamageBuff:
-                case eSpellType.MagicResistBuff:
-                case eSpellType.MatterResistBuff:
-                case eSpellType.MeleeDamageBuff:
-                case eSpellType.MesmerizeDurationBuff:
-                case eSpellType.MLABSBuff:
-                case eSpellType.ParryBuff:
-                case eSpellType.PowerHealthEnduranceRegenBuff:
-                case eSpellType.PowerRegenBuff:
-                case eSpellType.SavageCombatSpeedBuff:
-                case eSpellType.SavageCrushResistanceBuff:
-                case eSpellType.SavageDPSBuff:
-                case eSpellType.SavageParryBuff:
-                case eSpellType.SavageSlashResistanceBuff:
-                case eSpellType.SavageThrustResistanceBuff:
-                case eSpellType.SpiritResistBuff:
-                case eSpellType.StrengthBuff:
-                case eSpellType.StrengthConstitutionBuff:
-                case eSpellType.SuperiorCourageBuff:
-                case eSpellType.ToHitBuff:
-                case eSpellType.WeaponSkillBuff:
-                case eSpellType.DamageAdd:
-                case eSpellType.OffensiveProc:
-                case eSpellType.DefensiveProc:
-                case eSpellType.DamageShield:
-                case eSpellType.Bladeturn:
-                {
-                    // Buff self.
-                    if (!LivingHasEffect(Body, spell))
-                    {
-                        target = Body;
-                        break;
-                    }
+			GameLiving owner = Owner;
+			List<GameLiving> candidates = GameLoop.GetListForTick<GameLiving>();
 
-                    if (spell.Target is eSpellTarget.REALM or eSpellTarget.GROUP)
-                    {
-                        GameLiving owner = (this as IControlledBrain).Owner;
+			GamePlayer playerOwner = null;
+			GameNPC npcOwner = null;
 
-                        // Buff owner.
-                        if (!LivingHasEffect(owner, spell) && Body.IsWithinRadius(owner, spell.CalculateEffectiveRange(Body)))
-                        {
-                            target = owner;
-                            break;
-                        }
+			if (spell.Target is not eSpellTarget.SELF)
+			{
+				playerOwner = GetPlayerOwner();
 
-                        if (owner is GameNPC npc)
-                        {
-                            //Buff other minions
-                            foreach (IControlledBrain brain in npc.ControlledNpcList)
-                            {
-                                if (brain?.Body != null &&
-                                    !LivingHasEffect(brain.Body, spell) &&
-                                    Body.IsWithinRadius(brain.Body, spell.CalculateEffectiveRange(Body)))
-                                {
-                                    target = brain.Body;
-                                    break;
-                                }
-                            }
-                        }
+				if (playerOwner != null)
+					candidates.Add(playerOwner);
 
-                        GamePlayer player = GetPlayerOwner();
+				npcOwner = owner as GameNPC;
 
-                        // Buff group members.
-                        if (player != null)
-                        {
-                            if (!LivingHasEffect(player, spell))
-                            {
-                                target = player;
-                                break;
-                            }
+				if (npcOwner != null)
+					candidates.Add(owner);
+			}
 
-                            if (player.Group != null)
-                            {
-                                foreach (GamePlayer member in player.Group.GetPlayersInTheGroup())
-                                {
-                                    if (!LivingHasEffect(member, spell) && Body.IsWithinRadius(member, spell.CalculateEffectiveRange(Body)))
-                                    {
-                                        target = member;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
+			candidates.Add(Body);
 
-                    break;
-                }
+			if (spell.Target is not eSpellTarget.SELF)
+			{
+				IControlledBrain[] controlledNpcList = Body.ControlledNpcList;
 
-                #endregion Buffs
+				if (controlledNpcList != null)
+				{
+					foreach (IControlledBrain brain in controlledNpcList)
+					{
+						if (brain?.Body != null)
+							candidates.Add(brain.Body);
+					}
+				}
 
-                #region Disease Cure/Poison Cure/Summon
+				if (npcOwner != null)
+				{
+					controlledNpcList = npcOwner.ControlledNpcList;
 
-                case eSpellType.CureDisease:
-                {
-                    GameLiving owner = (this as IControlledBrain).Owner;
+					if (controlledNpcList != null)
+					{
+						foreach (IControlledBrain brain in controlledNpcList)
+						{
+							if (brain?.Body != null)
+								candidates.Add(brain.Body);
+						}
+					}
+				}
 
-                    // Cure owner.
-                    if (owner.IsDiseased)
-                    {
-                        target = owner;
-                        break;
-                    }
+				if (CanCastDefensiveSpellsOnGroupMembers)
+				{
+					List<GamePlayer> groupMembers = playerOwner?.Group?.GetPlayersInTheGroup();
 
-                    // Cure self.
-                    if (Body.IsDiseased)
-                    {
-                        target = Body;
-                        break;
-                    }
+					if (groupMembers != null)
+					{
+						foreach (GamePlayer member in groupMembers)
+						{
+							// Avoid duplicate.
+							if (member != playerOwner)
+								candidates.Add(member);
+						}
+					}
+				}
+			}
 
-                    GamePlayer player = GetPlayerOwner();
+			return candidates;
+		}
 
-                    // Cure group members.
-                    if (player?.Group != null)
-                    {
-                        foreach (GamePlayer member in player.Group.GetPlayersInTheGroup())
-                        {
-                            if (member.IsDiseased && Body.IsWithinRadius(member, spell.CalculateEffectiveRange(Body)))
-                            {
-                                target = member;
-                                break;
-                            }
-                        }
-                    }
+		public override bool CanSpellStillBeCastOnTarget(Spell spell, GameLiving target)
+		{
+			if (target == null)
+				return false;
 
-                    break;
-                }
-                case eSpellType.CurePoison:
-                {
-                    GameLiving owner = (this as IControlledBrain).Owner;
+			// Special case for underhill ally. It cannot heal itself.
+			// This should be moved to an underhill ally specific brain.
+			if (spell.ID == 60015 && target == Body)
+				return false;
 
-                    // Cure owner.
-                    if (owner.IsPoisoned)
-                    {
-                        target = owner;
-                        break;
-                    }
-
-                    // Cure self.
-                    if (Body.IsPoisoned)
-                    {
-                        target = Body;
-                        break;
-                    }
-
-                    GamePlayer player = GetPlayerOwner();
-
-                    // Cure group members.
-                    if (player?.Group != null)
-                    {
-                        foreach (GamePlayer member in player.Group.GetPlayersInTheGroup())
-                        {
-                            if (member.IsPoisoned && Body.IsWithinRadius(member, spell.CalculateEffectiveRange(Body)))
-                            {
-                                target = member;
-                                break;
-                            }
-                        }
-                    }
-                     
-                    break;
-                }
-                case eSpellType.Summon:
-                {
-                    target = Body;
-                    break;
-                }
-
-                #endregion
-
-                #region Heals
-
-                case eSpellType.CombatHeal:
-                case eSpellType.Heal:
-                case eSpellType.HealOverTime:
-                case eSpellType.MercHeal:
-                case eSpellType.OmniHeal:
-                case eSpellType.PBAoEHeal:
-                case eSpellType.SpreadHeal:
-                {
-                    int bodyPercent = Body.HealthPercent;
-                    int healThreshold = Properties.PET_HEAL_THRESHOLD;
-
-                    if (spell.Target == eSpellTarget.SELF)
-                    {
-                        if (bodyPercent < healThreshold && !LivingHasEffect(Body, spell))
-                            target = Body;
-
-                        break;
-                    }
-
-                    // Heal seriously injured targets first.
-                    int emergencyThreshold = healThreshold / 2;
-                    int ownerPercent = Owner.HealthPercent;
-
-                    // Heal owner.
-                    if (ownerPercent < emergencyThreshold && !LivingHasEffect(Owner, spell) && Body.IsWithinRadius(Owner, spell.CalculateEffectiveRange(Body)))
-                    {
-                        target = Owner;
-                        break;
-                    }
-
-                    // Heal self.
-                    if (bodyPercent < emergencyThreshold && !LivingHasEffect(Body, spell))
-                    {
-                        target = Body;
-                        break;
-                    }
-
-                    ICollection<GamePlayer> playerGroup = null;
-                    GamePlayer playerOwner = GetPlayerOwner();
-
-                    // Heal group members.
-                    if (playerOwner?.Group != null && (spell.Target is eSpellTarget.REALM or eSpellTarget.GROUP))
-                    {
-                        playerGroup = playerOwner.Group.GetPlayersInTheGroup();
-
-                        foreach (GamePlayer member in playerGroup)
-                        {
-                            if (member.HealthPercent < emergencyThreshold && !LivingHasEffect(member, spell) && Body.IsWithinRadius(member, spell.CalculateEffectiveRange(Body)))
-                            {
-                                target = member;
-                                break;
-                            }
-                        }
-                    }
-
-                    // Now check for targets which aren't seriously injured.
-
-                    if (spell.Target == eSpellTarget.SELF)
-                    {
-                        // If we have a self heal and health is less than 75% then heal, otherwise return false to try another spell or do nothing.
-                        if (bodyPercent < healThreshold && !LivingHasEffect(Body, spell))
-                            target = Body;
-
-                        break;
-                    }
-
-                    // Heal owner
-                    if (ownerPercent < healThreshold && !LivingHasEffect(Owner, spell) && Body.IsWithinRadius(Owner, spell.CalculateEffectiveRange(Body)))
-                    {
-                        target = Owner;
-                        break;
-                    }
-
-                    // Heal self.
-                    if (bodyPercent < healThreshold && !LivingHasEffect(Body, spell))
-                    {
-                        target = Body;
-                        break;
-                    }
-
-                    // Heal group members.
-                    if (playerGroup != null)
-                    {
-                        foreach (GamePlayer member in playerGroup)
-                        {
-                            if (member.HealthPercent < healThreshold && !LivingHasEffect(member, spell) && Body.IsWithinRadius(member, spell.CalculateEffectiveRange(Body)))
-                            {
-                                target = member;
-                                break;
-                            }
-                        }
-                    }
-
-                    break;
-                }
-
-                #endregion
-            }
-
-            return target;
-        }
+			return base.CanSpellStillBeCastOnTarget(spell, target);
+		}
 
 		public override bool CanAggroTarget(GameLiving target)
 		{
@@ -780,38 +522,28 @@ namespace DOL.AI.Brain
 			return AggroLevel > 0 && !ownerToCheck.IsObjectGreyCon(target) && GameServer.ServerRules.IsAllowedToAttack(Body, target, true);
 		}
 
-		protected override bool ShouldBeRemovedFromAggroList(GameLiving living)
-		{
-			if (living.IsMezzed ||
-				!living.IsAlive ||
-				living.ObjectState is not GameObject.eObjectState.Active ||
-				living.CurrentRegion != Body.CurrentRegion ||
-				!Body.IsWithinRadius(living, MAX_AGGRO_LIST_DISTANCE) ||
-				!GameServer.ServerRules.IsAllowedToAttack(Body, living, true))
-			{
-				return true;
-			}
-
-			ECSGameEffect root = EffectListService.GetEffectOnTarget(living, eEffect.MovementSpeedDebuff);
-			return root != null && root.SpellHandler.Spell.Value == 99;
-		}
-
 		/// <summary>
 		/// Perform some checks on 'm_orderAttackTarget'. Returns it if it's still a valid target, sets it to null otherwise.
 		/// </summary>
 		protected virtual GameLiving CheckAttackOrderTarget()
 		{
-			if (AggressionState != eAggressionState.Passive && m_orderAttackTarget != null)
-			{
-				if (m_orderAttackTarget.IsAlive &&
-					m_orderAttackTarget.ObjectState == GameObject.eObjectState.Active &&
-					GameServer.ServerRules.IsAllowedToAttack(Body, m_orderAttackTarget, true))
-					return m_orderAttackTarget;
+			if (m_orderAttackTarget == null)
+				return null;
 
+			if (!m_orderAttackTarget.IsAlive ||
+				m_orderAttackTarget.ObjectState is not GameObject.eObjectState.Active ||
+				!GameServer.ServerRules.IsAllowedToAttack(Body, m_orderAttackTarget, true))
+			{
 				m_orderAttackTarget = null;
+				return null;
 			}
 
-			return null;
+			return m_orderAttackTarget;
+		}
+
+		protected override AggroTable BuildAggroTable()
+		{
+			return new(new ControlledNpcThreatStrategy(this));
 		}
 
 		protected override GameLiving CalculateNextAttackTarget()
@@ -824,7 +556,7 @@ namespace DOL.AI.Brain
 		/// </summary>
 		public override void AttackMostWanted()
 		{
-			if (!IsActive || m_aggressionState == eAggressionState.Passive)
+			if (!IsActive)
 				return;
 
 			GameNPC owner_npc = GetNPCOwner();
@@ -844,54 +576,28 @@ namespace DOL.AI.Brain
 			}
 
 			GameLiving target = CalculateNextAttackTarget();
+			Body.TargetObject = target;
 
-			if (target != null)
-			{
-				if (!Body.IsAttacking || target != Body.TargetObject)
-				{
-					Body.TargetObject = target;
-
-					List<GameSpellEffect> effects = new List<GameSpellEffect>();
-
-					lock (Body.EffectList.Lock)
-					{
-						foreach (IGameEffect effect in Body.EffectList)
-						{
-							if (effect is GameSpellEffect gameSpellEffect && gameSpellEffect.SpellHandler is SpeedEnhancementSpellHandler)
-								effects.Add(gameSpellEffect);
-						}
-					}
-
-					lock (Owner.EffectList.Lock)
-					{
-						foreach (IGameEffect effect in Owner.EffectList)
-						{
-							if (effect is GameSpellEffect gameSpellEffect && gameSpellEffect.SpellHandler is SpeedEnhancementSpellHandler)
-								effects.Add(gameSpellEffect);
-						}
-					}
-
-					foreach (GameSpellEffect effect in effects)
-						effect.Cancel(false);
-				}
-
-				if (CheckSpells(eCheckSpellType.Offensive))
-					Body.StopAttack();
-				else
-					Body.StartAttack(target);
-			}
+			if (target == null || CheckSpells(eCheckSpellType.Offensive))
+				Body.StopAttack();
 			else
-			{
-				if (Body.IsAttacking)
-					Disengage();
+				Body.StartAttack(target);
+		}
 
-				if (WalkState == eWalkState.Follow)
-					FollowOwner();
-				else if (m_tempX > 0 && m_tempY > 0 && m_tempZ > 0)
-				{
-					Body.StopFollowing();
-					Body.WalkTo(new Point3D(m_tempX, m_tempY, m_tempZ), Body.MaxSpeed);
-				}
+		public override void Disengage()
+		{
+			m_orderAttackTarget = null;
+			base.Disengage();
+		}
+
+		public void ResumeWalkState()
+		{
+			if (WalkState is eWalkState.Follow)
+				FollowOwner();
+			else if (_tempPosition.HasValue)
+			{
+				Body.StopMoving();
+				Body.PathTo(_tempPosition.Value, Body.MaxSpeed);
 			}
 		}
 
@@ -928,7 +634,7 @@ namespace DOL.AI.Brain
 			foreach (ECSGameSpellEffect effect in Body.effectListComponent.GetSpellEffects())
 			{
 				if (effect.EffectType is eEffect.Pet or eEffect.Charm)
-					effect.Stop();
+					effect.End();
 			}
 		}
 
@@ -950,7 +656,7 @@ namespace DOL.AI.Brain
 				foreach (GameLiving living in _buffedTargets)
 				{
 					foreach (ECSGameEffect effect in living.effectListComponent.GetEffects().Where(x => x.SpellHandler != null && x.SpellHandler.Caster == Body))
-						effect.Stop();
+						effect.End();
 				}
 
 				_buffedTargets.Clear();
@@ -964,5 +670,23 @@ namespace DOL.AI.Brain
 		public override bool CheckFormation(ref int x, ref int y, ref int z) { return false; }
 
 		#endregion
+
+		protected class ControlledNpcThreatStrategy : ThreatStrategy
+		{
+			public ControlledNpcThreatStrategy(StandardMobBrain owner) : base(owner) { }
+
+			public override bool ShouldBeRemoved(GameLiving target)
+			{
+				if (base.ShouldBeRemoved(target))
+					return true;
+
+				// Pets forget about mezzed and rooted players.
+				if (target.IsMezzed)
+					return true;
+
+				ECSGameEffect root = EffectListService.GetEffectOnTarget(target, eEffect.MovementSpeedDebuff);
+				return root != null && root.SpellHandler.Spell.Value == 99;
+			}
+		}
 	}
 }

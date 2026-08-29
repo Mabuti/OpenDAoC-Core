@@ -1,9 +1,9 @@
 namespace DOL.GS.PacketHandler.Client.v168
 {
     [PacketHandlerAttribute(PacketHandlerType.TCP, eClientPackets.PlayerTarget, "Handle Player Target Change.", eClientStatus.PlayerInGame)]
-    public class PlayerTargetHandler : IPacketHandler
+    public class PlayerTargetHandler : PacketHandler
     {
-        public void HandlePacket(GameClient client, GSPacketIn packet)
+        protected override void HandlePacketInternal(GameClient client, GSPacketIn packet)
         {
             ushort targetId = packet.ReadShort();
             ushort flags = packet.ReadShort();
@@ -28,6 +28,14 @@ namespace DOL.GS.PacketHandler.Client.v168
                 target = null;
             }
 
+            // The inventory window closes itself when the player changes target.
+            // This is a good opportunity to call RemoveObserver on the currently active inventory object.
+            if (actionSource.TargetObject != target)
+            {
+                actionSource.ActiveInventoryObject?.RemoveObserver(actionSource);
+                actionSource.ActiveInventoryObject = null;
+            }
+
             actionSource.TargetObject = target;
             actionSource.TargetInView = targetInView;
             actionSource.IsInAttackMode = isAttackMode;
@@ -38,7 +46,7 @@ namespace DOL.GS.PacketHandler.Client.v168
                 if (examineTarget)
                 {
                     foreach (string message in target.GetExamineMessages(actionSource))
-                        actionSource.Out.SendMessage(message, eChatType.CT_Missed, eChatLoc.CL_SystemWindow);
+                        actionSource.Out.SendMessage(message, eChatType.CT_Action, eChatLoc.CL_SystemWindow);
                 }
 
                 // No LOS message. Not sure which bit to use so use both.
@@ -48,9 +56,8 @@ namespace DOL.GS.PacketHandler.Client.v168
                 if (target is not GamePlayer)
                     ClientService.UpdateObjectForPlayer(actionSource, target);
 
-                // Unstealth if anything is targeted while we're in combat mode.
-                // A timer is used to allow any potential opener to be executed during this tick.
-                if (actionSource.IsAttacking && actionSource.IsStealthed)
+                // Unstealth if anything is targeted while we're in combat mode. Exclude archers as they should be allowed to change target without losing stealth.
+                if (actionSource.ActiveWeaponSlot is not eActiveWeaponSlot.Distance && actionSource.IsAttacking && actionSource.IsStealthed)
                     actionSource.Stealth(false);
             }
 

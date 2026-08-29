@@ -92,10 +92,7 @@ namespace DOL.GS
             }
 
             if (m_pet != null && m_pet.IsAlive && !m_pet.InCombat && m_pet.Brain is StandardMobBrain petBrain)
-            {
-                petBrain.AddToAggroList(ad.Attacker, 1);
-                petBrain.Think();
-             }
+                petBrain.AddToAggroList(ad.Attacker);
         }
 
         /// <summary>

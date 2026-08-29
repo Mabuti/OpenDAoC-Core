@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -28,7 +29,7 @@ namespace DOL.GS.PacketHandler
 		{
 			using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.EquipmentUpdate)))
 			{
-				ICollection<DbInventoryItem> items = null;
+				List<DbInventoryItem> items = null;
 				if (living.Inventory != null)
 					items = living.Inventory.VisibleItems;
 
@@ -156,7 +157,7 @@ namespace DOL.GS.PacketHandler
 		/// Legacy inventory update. This handler silently
 		/// assumes that a slot on the client matches a slot on the server.
 		/// </summary>
-		protected override void SendInventorySlotsUpdateRange(ICollection<eInventorySlot> slots, eInventoryWindowType windowType)
+		protected override void SendInventorySlotsUpdateRange(List<eInventorySlot> slots, eInventoryWindowType windowType)
 		{
 			using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(GetPacketCode(eServerPackets.InventoryUpdate)))
 			{
@@ -388,10 +389,12 @@ namespace DOL.GS.PacketHandler
                     name += "[" + Money.GetShortString(item.SellPrice) + "]";
             }
 
-			if (name.Length > MAX_NAME_LENGTH)
-				name = name.Substring(0, MAX_NAME_LENGTH);
+			ReadOnlySpan<char> nameSpan = name == null ? [] : name;
 
-			pak.WritePascalString(name);
+			if (nameSpan.Length > MAX_NAME_LENGTH)
+				nameSpan = nameSpan[..MAX_NAME_LENGTH];
+
+			pak.WritePascalString(nameSpan);
 		}
 
 
@@ -497,7 +500,7 @@ namespace DOL.GS.PacketHandler
 				pak.WriteByte(0x00);
 				pak.WriteByte(0x00);
 				pak.WriteByte((byte)house.Model);
-				pak.WriteByte(0x00);
+				pak.WriteByte((byte)house.DoorMaterial);
 				pak.WriteByte(0x00);
 				pak.WriteByte(0x00);
 				pak.WriteByte((byte)house.Rug1Color);

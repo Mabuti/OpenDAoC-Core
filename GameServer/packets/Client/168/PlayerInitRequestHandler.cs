@@ -5,20 +5,17 @@ using System.Reflection;
 using DOL.Events;
 using DOL.GS.Housing;
 using DOL.GS.Keeps;
-using DOL.GS.Utils;
 using DOL.Language;
+using DOL.Logging;
 
 namespace DOL.GS.PacketHandler.Client.v168
 {
     [PacketHandlerAttribute(PacketHandlerType.TCP, eClientPackets.PlayerInitRequest, "Region Entering Init Request", eClientStatus.PlayerInGame)]
-    public class PlayerInitRequestHandler : IPacketHandler
+    public class PlayerInitRequestHandler : PacketHandler
     {
-        /// <summary>
-        /// Defines a logger for this class.
-        /// </summary>
-        private static readonly Logging.Logger Log = Logging.LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
+        private static readonly Logger Log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
 
-        public void HandlePacket(GameClient client, GSPacketIn packet)
+        protected override void HandlePacketInternal(GameClient client, GSPacketIn packet)
         {
             GamePlayer player = client.Player;
             player.Out.SendUpdatePoints();
@@ -58,8 +55,10 @@ namespace DOL.GS.PacketHandler.Client.v168
             if (player.Group != null)
             {
                 player.Group.UpdateGroupWindow();
-                player.Group.UpdateAllToMember(player, true, true);
-                player.Group.UpdateMember(player, true, true);
+                player.Group.UpdateAllToMember(player, true);
+                player.Group.UpdateAllToMemberIcons(player, true);
+                player.Group.UpdateMember(player, true);
+                player.Group.UpdateMemberIcons(player, true);
             }
 
             player.Out.SendPlayerInitFinished(0);
@@ -81,11 +80,14 @@ namespace DOL.GS.PacketHandler.Client.v168
             if (ServerProperties.Properties.ENABLE_DEBUG)
                 player.Out.SendMessage("Server is running in DEBUG mode!", eChatType.CT_System, eChatLoc.CL_SystemWindow);
 
-            if (ServerProperties.Properties.TELEPORT_LOGIN_BG_LEVEL_EXCEEDED)
-                CheckBGLevelCapForPlayerAndMoveIfNecessary(player);
+            if ((ePrivLevel) player.Client.Account.PrivLevel < ePrivLevel.GM)
+            {
+                if (player.PreviousLoginDate.AddMinutes(ServerProperties.Properties.NEAR_KEEP_RELOG_GRACE_PERIOD) < DateTime.Now)
+                    CheckNearbyKeepAndMoveIfUnsafe(player);
 
-            // Check realm timer and move player to bind if realm timer is not for this realm.
-            RealmTimer.CheckRealmTimer(player);
+                if (ServerProperties.Properties.TELEPORT_LOGIN_BG_LEVEL_EXCEEDED)
+                    CheckBGLevelCapForPlayerAndMoveIfNecessary(player);
+            }
 
             if (checkInstanceLogin)
             {
@@ -98,8 +100,6 @@ namespace DOL.GS.PacketHandler.Client.v168
 
             if (player.IsUnderwater)
                 player.IsDiving = true;
-
-            player.Client.ClientState = GameClient.eClientState.Playing;
 
             if (updateTempProperties)
             {
@@ -138,6 +138,20 @@ namespace DOL.GS.PacketHandler.Client.v168
                 player.Client.HasSeenPatchNotes = true;
             }
 
+            static void CheckNearbyKeepAndMoveIfUnsafe(GamePlayer player)
+            {
+                AbstractGameKeep keep = GameServer.KeepManager.GetClosestKeepToSpot(player.CurrentRegionID, player, WorldMgr.VISIBILITY_DISTANCE);
+
+                if (keep == null)
+                    return;
+
+                if (GameServer.KeepManager.IsEnemy(keep, player) || keep.InCombat)
+                {
+                    player.Out.SendMessage("This area isn't currently secure and you are being transported to a safer location.", eChatType.CT_System, eChatLoc.CL_SystemWindow);
+                    player.MoveToBind();
+                }
+            }
+
             static void CheckBGLevelCapForPlayerAndMoveIfNecessary(GamePlayer player)
             {
                 if (player.Client.Account.PrivLevel == 1 && player.CurrentRegion.IsRvR && player.CurrentRegionID != 163)
@@ -151,7 +165,7 @@ namespace DOL.GS.PacketHandler.Client.v168
 
                         if (player.Level > k.BaseLevel)
                         {
-                            player.Out.SendMessage(LanguageMgr.GetTranslation(player.Client.Account.Language, "PlayerInitRequestHandler.LevelCap"), eChatType.CT_YouWereHit, eChatLoc.CL_SystemWindow);
+                            player.Out.SendMessage(LanguageMgr.GetTranslation(player.Client.Account.Language, "PlayerInitRequestHandler.LevelCap"), eChatType.CT_System, eChatLoc.CL_SystemWindow);
                             player.MoveTo((ushort) player.BindRegion, player.BindXpos, player.BindYpos, player.BindZpos, (ushort) player.BindHeading);
                             break;
                         }

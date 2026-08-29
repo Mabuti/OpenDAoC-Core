@@ -30,22 +30,9 @@ namespace DOL.GS.Spells
 		void CasterMoves();
 
 		/// <summary>
-		/// Has to be called when the caster is attacked by enemy
-		/// for interrupt checks
-		/// <param name="attacker">attacker that interrupts the cast sequence</param>
-		/// <returns>true if casting was interrupted</returns>
-		/// </summary>
-		bool CasterIsAttacked(GameLiving attacker);
-
-		/// <summary>
 		/// Returns true when spell is in casting phase
 		/// </summary>
 		bool IsInCastingPhase { get; }
-
-		/// <summary>
-		/// Can this spell be queued with other spells?
-		/// </summary>
-		bool CanQueue { get; }
 
 		/// <summary>
 		/// Does this spell break stealth on start of cast?
@@ -182,26 +169,10 @@ namespace DOL.GS.Spells
 		/// </summary>
 		IList<string> DelveInfo { get; }
 
-		/// <summary>
-		/// Current depth of delve info
-		/// </summary>
-		byte DelveInfoDepth { get; set; }
-
 		DbPlayerXEffect GetSavedEffect(GameSpellEffect e);
 		void OnEffectRestored(GameSpellEffect effect, int[] RestoreVars);
 		int OnRestoredEffectExpires(GameSpellEffect effect, int[] RestoreVars, bool noMessages);
 		bool CheckBeginCast(GameLiving selectedTarget);
 		bool CheckConcentrationCost(bool quiet);
 	}
-
-	/// <summary>
-	/// Callback when spell handler has done its cast work
-	/// </summary>
-	public delegate void CastingCompleteCallback(ISpellHandler handler);
-
-	/// <summary>
-	/// Callback when spell handler is completely done and duration spell expired
-	/// or concentration spell was canceled
-	/// </summary>
-	public delegate void SpellEndsCallback(ISpellHandler handler);
 }

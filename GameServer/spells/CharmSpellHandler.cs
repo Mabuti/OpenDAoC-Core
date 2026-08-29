@@ -19,15 +19,15 @@ namespace DOL.GS.Spells
         private static readonly FrozenDictionary<eCharmType, string> charmTypeToTextMap =
             new Dictionary<eCharmType, string>()
             {
-                {eCharmType.Humanoid, "humanoid"},
-                {eCharmType.Animal, "animal"},
-                {eCharmType.Insect, "insect"},
-                {eCharmType.Reptile, "reptile"},
-                {eCharmType.HumanoidAnimal, "humanoid and animal"},
-                {eCharmType.HumanoidAnimalInsect, "humanoid, animal and insect"},
-                {eCharmType.HumanoidAnimalInsectMagical, "humanoid, animal, insect and magical"},
-                {eCharmType.HumanoidAnimalInsectMagicalUndead, "humanoid, animal, insect, magical and undead"},
-                {eCharmType.All, string.Empty},
+                {eCharmType.Humanoid, "humanoid "},
+                {eCharmType.Animal, "animal "},
+                {eCharmType.Insect, "insect "},
+                {eCharmType.Reptile, "reptile "},
+                {eCharmType.HumanoidAnimal, "humanoid or animal "},
+                {eCharmType.HumanoidAnimalInsect, "humanoid, animal or insect "},
+                {eCharmType.HumanoidAnimalInsectMagical, "humanoid, animal, insect or magical "},
+                {eCharmType.HumanoidAnimalInsectMagicalUndead, "humanoid, animal, insect, magical or undead "},
+                {eCharmType.All, string.Empty}
             }.ToFrozenDictionary();
 
         public override string ShortDescription
@@ -35,10 +35,10 @@ namespace DOL.GS.Spells
             get
             {
                 charmTypeToTextMap.TryGetValue((eCharmType) Spell.AmnesiaChance, out string charmableSpecies);
-                string description = $"Attempt to bring the target {charmableSpecies} monster under the caster's control.";
+                string description = $"Attempt to bring the target {charmableSpecies}monster under the caster's control{GetFrequencyAndDurationSuffix()}.";
 
                 if (Spell.Pulse == 0)
-                    description += $" Affects monsters up to {(Spell.Damage == 100 ? string.Empty : Spell.Damage + "% of")} of your level, to a maximum of level 15.";
+                    description += $" Affects monsters up to {(Spell.Damage == 100 ? string.Empty : Spell.Damage + "% of ")}your level, to a maximum of level {Spell.Value}.";
 
                 return description;
             }
@@ -48,7 +48,7 @@ namespace DOL.GS.Spells
 
         public override ECSGameSpellEffect CreateECSEffect(in ECSGameEffectInitParams initParams)
         {
-            return ECSGameEffectFactory.Create(initParams, static (in ECSGameEffectInitParams i) => new CharmECSGameEffect(i));
+            return ECSGameEffectFactory.Create(initParams, static (in i) => new CharmECSGameEffect(i));
         }
 
         /// <summary>
@@ -79,12 +79,7 @@ namespace DOL.GS.Spells
             }
 
             target ??= Target;
-
-            if (Util.ChanceDouble(CalculateSpellResistChance(target)))
-                OnSpellNegated(target, SpellNegatedReason.Resisted);
-            else
-                ApplyEffectOnTarget(target);
-
+            ApplyEffectOnTarget(target);
             return true;
         }
 
@@ -295,7 +290,7 @@ namespace DOL.GS.Spells
                 // 2) Caster's modified spec level * 1.1
                 // The second point is based upon the spell limitation where mob level cannot exceed 110% of the Caster's modified spec level.
                 // For example, with a modified spec of 65, the Caster cannot charm a mob above level 71 AT ALL (no 99% resist, just outright return of 'false').
-                if (casterPlayer.CharacterClass.ID is (int)eCharacterClass.Minstrel or (int)eCharacterClass.Mentalist)
+                if (Spell.Pulse == 1)
                 {
                     // If the target mob's level surpasses Spell.Value
                     if (charmMob.Level > Spell.Value)
@@ -312,7 +307,6 @@ namespace DOL.GS.Spells
                         return false;
                     }
                 }
-
                 // Hunter- and Sorcerer-specific limitations
                 // Determine whether mob level is too high based on:
                 // 1) Spell.Value
@@ -321,7 +315,7 @@ namespace DOL.GS.Spells
                 // The main limitation on Sorcerer charms is that the mob level cannot exceed the Spell.Value or the Caster's level, unlike Minstrel/Mentalist charms.
                 // For example, with a Caster level of 50, the Caster cannot charm a mob above level 50 AT ALL (no 99% resist, just outright return of 'false').
                 // For Spell.Value, each charm spell has a maximum level value for Sorc's below level 50, which means lower-level charms cannot be used to save on power or charm same-level mobs of different body types. The highest-level spell should always be used.
-                if (casterPlayer.CharacterClass.ID is (int)eCharacterClass.Hunter or (int)eCharacterClass.Sorcerer)
+                else
                 {
                     // Check first if the target mob's level surpasses the Caster's level
                     // Mob level cannot exceed the Caster's level
@@ -360,15 +354,24 @@ namespace DOL.GS.Spells
         {
             GamePlayer playerCaster = Caster as GamePlayer;
 
-            //You should be able to chain pulsing charm on the same mob
+            // You should be able to chain pulsing charm on the same mob.
             if (Spell.Pulse != 0 && playerCaster?.ControlledBrain != null && playerCaster.ControlledBrain.Body != target)
                 playerCaster.CommandNpcRelease();
 
-            // Make sure the pet is in the same region and alive
+            // Stop the song in case the pet was stolen during a CC or if it was manually released.
+            if (target is GameNPC npcTarget && npcTarget.Brain is IControlledBrain controlledBrain && controlledBrain.Owner != Caster)
+            {
+                MessageToCaster(LanguageMgr.GetTranslation(playerCaster.Client, "CharmSpell.EndCast.Fail.CurrentlyControlled", target.GetName(0, true)), eChatType.CT_SpellResisted);
+                ECSPulseEffect song = EffectListService.GetPulseEffectOnTarget(Caster, Spell);
+                song?.End();
+                return;
+            }
+
+            // Make sure the pet is in the same region and alive.
             if (target.CurrentRegion != Caster.CurrentRegion || !target.IsAlive || target.ObjectState != GameObject.eObjectState.Active)
             {
                 ECSPulseEffect song = EffectListService.GetPulseEffectOnTarget(Caster, Spell);
-                song?.Stop();
+                song?.End();
                 return;
             }
 
@@ -407,7 +410,7 @@ namespace DOL.GS.Spells
                     resistChance = 100 - CalculateToHitChance(target);
 
                 double spellResistChance = resistChance;
-                double resistResult = Util.RandomDouble() * 100;
+                double resistResult = Caster.RandomProvider.GetPseudoDouble(RandomContextFactory.Resist()) * 100;
                 string resistString = string.Format("{0:0.##}", spellResistChance);
                 string rollString = string.Format("{0:0.##}", resistResult);
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using DOL.AI.Brain;
@@ -21,7 +22,7 @@ namespace DOL.GS
     {
         private readonly List<GameLiving> _groupMembers;
         private readonly Lock _groupMembersLock = new();
-        private AbstractMission _mission;
+        private GroupMemberPositionUpdateTimer _memberPositionUpdateTimer;
 
         public byte MemberCount
         {
@@ -48,27 +49,26 @@ namespace DOL.GS
 
         public AbstractMission Mission
         {
-            get => _mission;
+            get;
             set
             {
-                _mission = value;
+                field = value;
 
                 foreach (GamePlayer groupMember in GetPlayersInTheGroup())
                 {
                     groupMember.Out.SendQuestListUpdate();
 
                     if (value != null)
-                        groupMember.Out.SendMessage(_mission.Description, eChatType.CT_System, eChatLoc.CL_SystemWindow);
+                        groupMember.Out.SendMessage(field.Description, eChatType.CT_System, eChatLoc.CL_SystemWindow);
                 }
             }
         }
-
-        public Group(GamePlayer leader) : this((GameLiving) leader) { }
 
         public Group(GameLiving leader)
         {
             LivingLeader = leader;
             _groupMembers = new(Properties.GROUP_MAX_MEMBER);
+            _memberPositionUpdateTimer = new(this);
         }
 
         public List<GameLiving> GetMembersInTheGroup()
@@ -119,7 +119,17 @@ namespace DOL.GS
             if (living is GamePlayer player)
             {
                 player.Duel?.Stop();
-                player.Out.SendGroupMembersUpdate(true, true);
+                ReadOnlySpan<GameLiving> membersInGroup = CollectionsMarshal.AsSpan(GetMembersInTheGroup());
+                player.Out.SendGroupMembersUpdate(membersInGroup);
+                player.Out.SendGroupMembersIconsUpdate(membersInGroup);
+                AbstractMission groupMission = Mission;
+
+                if (groupMission != null)
+                {
+                    // Quest list updates also carry task/mission text for newer clients.
+                    player.Out.SendQuestListUpdate();
+                    player.Out.SendMessage(groupMission.Description, eChatType.CT_System, eChatLoc.CL_SystemWindow);
+                }
 
                 // Part of the hack to make friendly pets untargetable (or targetable again) with TAB on a PvP server.
                 // We could also check for non controlled pets (turrets for example) around the player, but it isn't very important.
@@ -148,7 +158,7 @@ namespace DOL.GS
                         {
                             // Update how the group member sees the added player's pet and themself.
                             SendControlledBodyGuildID(groupMember, groupMemberGuild, controlledBrain.Body);
-                            groupMember.Out.SendObjectGuildID(groupMember, groupMemberGuild ?? Guild.DummyGuild);
+                            groupMember.Out.SendObjectGuildID(groupMember, groupMemberGuild ?? GuildMgr.DummyGuild);
                         }
 
                         IControlledBrain groupMemberControlledBrain = groupMember.ControlledBrain;
@@ -162,11 +172,12 @@ namespace DOL.GS
                     }
 
                     if (updateOneself)
-                        player.Out.SendObjectGuildID(player, playerGuild ?? Guild.DummyGuild);
+                        player.Out.SendObjectGuildID(player, playerGuild ?? GuildMgr.DummyGuild);
                 }
             }
 
-            UpdateMember(living, true, true);
+            UpdateMember(living, true);
+            UpdateMemberIcons(living, true);
             UpdateGroupWindow();
             GameEventMgr.Notify(GroupEvent.MemberJoined, this, new MemberJoinedEventArgs(living));
             return true;
@@ -174,11 +185,14 @@ namespace DOL.GS
 
         public bool RemoveMember(GameLiving living)
         {
+            AbstractMission groupMission;
+
             lock (_groupMembersLock)
             {
                 if (!_groupMembers.Remove(living))
                     return false;
 
+                groupMission = Mission;
                 living.Group = null;
                 living.GroupIndex = 0xFF;
 
@@ -192,7 +206,12 @@ namespace DOL.GS
             if (living is GamePlayer player)
             {
                 player.Out.SendGroupWindowUpdate();
-                player.Out.SendQuestListUpdate();
+
+                if (groupMission != null)
+                {
+                    // Quest list updates also carry task/mission text for newer clients.
+                    player.Out.SendQuestListUpdate();
+                }
 
                 List<ECSGameAbilityEffect> abilityEffects = player.effectListComponent.GetAbilityEffects();
 
@@ -206,7 +225,7 @@ namespace DOL.GS
                             if (abilityEffect is GuardECSGameEffect guard)
                             {
                                 if (guard.Source is GamePlayer && guard.Target is GamePlayer)
-                                    _ = guard.Stop();
+                                    _ = guard.End();
                             }
 
                             continue;
@@ -216,7 +235,7 @@ namespace DOL.GS
                             if (abilityEffect is ProtectECSGameEffect protect)
                             {
                                 if (protect.Source is GamePlayer && protect.Target is GamePlayer)
-                                    _ = protect.Stop();
+                                    _ = protect.End();
                             }
 
                             continue;
@@ -226,7 +245,7 @@ namespace DOL.GS
                             if (abilityEffect is InterceptECSGameEffect intercept)
                             {
                                 if (intercept.Source is GamePlayer && intercept.Target is GamePlayer)
-                                    _ = intercept.Stop();
+                                    _ = intercept.End();
                             }
 
                             continue;
@@ -275,7 +294,7 @@ namespace DOL.GS
                     }
 
                     if (updateOneself)
-                        player.Out.SendObjectGuildID(player, playerGuild ?? Guild.DummyGuild);
+                        player.Out.SendObjectGuildID(player, playerGuild ?? GuildMgr.DummyGuild);
                 }
 
                 player.Out.SendMessage("You leave your group.", eChatType.CT_System, eChatLoc.CL_SystemWindow);
@@ -331,13 +350,19 @@ namespace DOL.GS
                     SendControlledBodyGuildID(player, playerGuild, npcControlledBrain.Body);
             }
 
-            player.Out.SendObjectGuildID(controlledBody, playerGuild ?? Guild.DummyGuild);
+            player.Out.SendObjectGuildID(controlledBody, playerGuild ?? GuildMgr.DummyGuild);
         }
 
         public void DisbandGroup()
         {
             _ = GroupMgr.RemoveGroup(this);
             Mission?.ExpireMission();
+
+            if (_memberPositionUpdateTimer != null)
+            {
+                _memberPositionUpdateTimer.Stop();
+                _memberPositionUpdateTimer = null;
+            }
 
             lock (_groupMembersLock)
             {
@@ -348,10 +373,25 @@ namespace DOL.GS
 
         private void UpdateGroupIndexes()
         {
+            var shiftedMembers = GameLoop.GetListForTick<GameLiving>();
+
             lock (_groupMembersLock)
             {
                 for (int i = 0; i < _groupMembers.Count; i++)
+                {
+                    if (_groupMembers[i].GroupIndex == (byte) i)
+                        continue;
+
                     _groupMembers[i].GroupIndex = (byte) i;
+                    shiftedMembers.Add(_groupMembers[i]);
+                }
+            }
+
+            if (shiftedMembers.Count > 0)
+            {
+                ReadOnlySpan<GameLiving> shiftedMembersSpan = CollectionsMarshal.AsSpan(shiftedMembers);
+                UpdateMembers(shiftedMembersSpan, true);
+                UpdateMembersIcons(shiftedMembersSpan, true);
             }
         }
 
@@ -374,7 +414,8 @@ namespace DOL.GS
                 oldLeader.GroupIndex = index;
             }
 
-            UpdateMembers([oldLeader, living], true, true);
+            UpdateMembers([oldLeader, living], true);
+            UpdateMembersIcons([oldLeader, living], true);
             UpdateGroupWindow();
             SendMessageToGroupMembers($"{Leader.Name} is the new group leader.", eChatType.CT_System, eChatLoc.CL_SystemWindow);
             return true;
@@ -396,7 +437,8 @@ namespace DOL.GS
                 _groupMembers[sourceIndex] = target;
             }
 
-            UpdateMembers([source, target], true, true);
+            UpdateMembers([source, target], true);
+            UpdateMembersIcons([source, target], true);
             UpdateGroupWindow();
             SendMessageToGroupMembers($"Switched group member {source.Name} with {target.Name}", eChatType.CT_System, eChatLoc.CL_SystemWindow);
             return true;
@@ -426,36 +468,88 @@ namespace DOL.GS
                 player.Out.SendMessage(msg, type, loc);
         }
 
-        public void UpdateMember(GameLiving living, bool updateIcons, bool updateOtherRegions)
+        public void UpdateMember(GameLiving living, bool updateOtherRegions)
         {
-            UpdateMembers([living], updateIcons, updateOtherRegions);
+            UpdateMembers([living], updateOtherRegions);
         }
 
-        public void UpdateMembers(ReadOnlySpan<GameLiving> livings, bool updateIcons, bool updateOtherRegions)
+        public void UpdateMembers(ReadOnlySpan<GameLiving> livings, bool updateOtherRegions)
         {
-            foreach (GameLiving living in livings)
+            foreach (GamePlayer player in GetPlayersInTheGroup())
             {
-                if (living.Group != this)
-                    continue;
+                List<GameLiving> updatesForPlayer = GameLoop.GetListForTick<GameLiving>();
 
-                foreach (GamePlayer player in GetPlayersInTheGroup())
+                foreach (GameLiving living in livings)
                 {
+                    if (living.Group != this)
+                        continue;
+
                     if (updateOtherRegions || player.CurrentRegion == living.CurrentRegion)
-                        player.Out.SendGroupMemberUpdate(updateIcons, true, living);
+                        updatesForPlayer.Add(living);
                 }
+
+                if (updatesForPlayer.Count > 0)
+                    player.Out.SendGroupMembersUpdate(CollectionsMarshal.AsSpan(updatesForPlayer));
             }
         }
 
-        public void UpdateAllToMember(GamePlayer player, bool updateIcons, bool updateOtherRegions)
+        public void UpdateAllToMember(GamePlayer player, bool updateOtherRegions)
         {
             if (player.Group != this)
                 return;
 
+            List<GameLiving> updatesForPlayer = GameLoop.GetListForTick<GameLiving>();
+
             foreach (GameLiving living in GetMembersInTheGroup())
             {
                 if (updateOtherRegions || living.CurrentRegion == player.CurrentRegion)
-                    player.Out.SendGroupMemberUpdate(updateIcons, true, living);
+                    updatesForPlayer.Add(living);
             }
+
+            if (updatesForPlayer.Count > 0)
+                player.Out.SendGroupMembersUpdate(CollectionsMarshal.AsSpan(updatesForPlayer));
+        }
+
+        public void UpdateMemberIcons(GameLiving living, bool updateOtherRegions)
+        {
+            UpdateMembersIcons([living], updateOtherRegions);
+        }
+
+        public void UpdateMembersIcons(ReadOnlySpan<GameLiving> livings, bool updateOtherRegions)
+        {
+            foreach (GamePlayer player in GetPlayersInTheGroup())
+            {
+                List<GameLiving> updatesForPlayer = GameLoop.GetListForTick<GameLiving>();
+
+                foreach (GameLiving living in livings)
+                {
+                    if (living.Group != this)
+                        continue;
+
+                    if (updateOtherRegions || player.CurrentRegion == living.CurrentRegion)
+                        updatesForPlayer.Add(living);
+                }
+
+                if (updatesForPlayer.Count > 0)
+                    player.Out.SendGroupMembersIconsUpdate(CollectionsMarshal.AsSpan(updatesForPlayer));
+            }
+        }
+
+        public void UpdateAllToMemberIcons(GamePlayer player, bool updateOtherRegions)
+        {
+            if (player.Group != this)
+                return;
+
+            List<GameLiving> updatesForPlayer = GameLoop.GetListForTick<GameLiving>();
+
+            foreach (GameLiving living in GetMembersInTheGroup())
+            {
+                if (updateOtherRegions || living.CurrentRegion == player.CurrentRegion)
+                    updatesForPlayer.Add(living);
+            }
+
+            if (updatesForPlayer.Count > 0)
+                player.Out.SendGroupMembersIconsUpdate(CollectionsMarshal.AsSpan(updatesForPlayer));
         }
 
         public void UpdateGroupWindow()
@@ -634,6 +728,32 @@ namespace DOL.GS
                 _ = text.Append($"{groupMember.Name} ({groupMember.CharacterClass.Name}) ");
 
             return text.ToString();
+        }
+
+        private class GroupMemberPositionUpdateTimer : ECSGameTimerWrapperBase
+        {
+            public const int POSITION_UPDATE_INTERVAL = 2500;
+
+            private readonly Group _group;
+
+            public GroupMemberPositionUpdateTimer(Group group) : base(null)
+            {
+                _group = group;
+                Start(POSITION_UPDATE_INTERVAL);
+            }
+
+            protected override int OnTick(ECSGameTimer timer)
+            {
+                if (_group.LivingLeader == null)
+                    return 0;
+
+                var playersInGroup = _group.GetPlayersInTheGroup();
+
+                foreach (GamePlayer player in playersInGroup)
+                    player.Out.SendGroupMembersMapUpdate(CollectionsMarshal.AsSpan(playersInGroup));
+
+                return POSITION_UPDATE_INTERVAL;
+            }
         }
     }
 }

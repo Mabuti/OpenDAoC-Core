@@ -67,9 +67,9 @@ namespace DOL.GS
             Faction = FactionMgr.GetFactionByID(96);
             SetOwnBrain(sBrain);
 
-            OrganicEnergyMechanismBrain.StartCastDOT = false;
-            OrganicEnergyMechanismBrain.CanCast = false;
-            OrganicEnergyMechanismBrain.RandomTarget = null;
+            sBrain.StartCastDOT = false;
+            sBrain.CanCast = false;
+            sBrain.RandomTarget = null;
 
             bool success = base.AddToWorld();
             if (success)
@@ -116,10 +116,10 @@ namespace DOL.AI.Brain
             }
         }
         #region OEM Dot
-        public static bool CanCast = false;
-        public static bool StartCastDOT = false;
-        public static GamePlayer randomtarget = null;
-        public static GamePlayer RandomTarget
+        public bool CanCast = false;
+        public bool StartCastDOT = false;
+        public GamePlayer randomtarget = null;
+        public GamePlayer RandomTarget
         {
             get { return randomtarget; }
             set { randomtarget = value; }
@@ -147,7 +147,7 @@ namespace DOL.AI.Brain
                     if (CanCast == false)
                     {
                         GamePlayer Target = (GamePlayer)Enemys_To_DOT[Util.Random(0, Enemys_To_DOT.Count - 1)];//pick random target from list
-                        RandomTarget = Target;//set random target to static RandomTarget
+                        RandomTarget = Target;
                         BroadcastMessage(String.Format(Body.Name + "looks sickly... powerfull magic essense will errupt on " + RandomTarget.Name + "!"));
                         new ECSGameTimer(Body, new ECSGameTimer.ECSTimerCallback(CastDOT), 5000);
                         CanCast = true;
@@ -237,7 +237,7 @@ namespace DOL.AI.Brain
             }
             base.Think();
         }
-        public static bool SpawnFeeder = false;
+        public bool SpawnFeeder = false;
         public int SpawnFeeders(ECSGameTimer timer) // We define here adds
         {
             if (Body.IsAlive && HasAggro)
@@ -288,12 +288,11 @@ namespace DOL.AI.Brain
                     spell.Duration = 50;
                     spell.Frequency = 50; //dot tick every 5s
                     spell.SpellID = 11700;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = "DamageOverTime";
                     spell.Uninterruptible = true;
                     spell.DamageType = (int) eDamageType.Matter; //Spirit DMG Type
                     m_AOE_Poison = new Spell(spell, 50);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_AOE_Poison);
                 }
                 return m_AOE_Poison;
             }
@@ -319,12 +318,11 @@ namespace DOL.AI.Brain
                     spell.Range = 1800;
                     spell.Duration = 35;
                     spell.SpellID = 11701;
-                    spell.Target = "Self";
+                    spell.Target = eSpellTarget.SELF.ToString();
                     spell.Type = "DamageShield";
                     spell.Uninterruptible = true;
                     spell.DamageType = (int) eDamageType.Matter; //Spirit DMG Type
                     m_DamageShield = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_DamageShield);
                 }
                 return m_DamageShield;
             }
@@ -347,12 +345,11 @@ namespace DOL.AI.Brain
                     spell.Name = "Machanism Effect";
                     spell.TooltipId = 5126;
                     spell.SpellID = 11864;
-                    spell.Target = "Self";
+                    spell.Target = eSpellTarget.SELF.ToString();
                     spell.Type = eSpellType.PowerRegenBuff.ToString();
                     spell.Uninterruptible = true;
                     spell.MoveCast = true;
                     m_OEMEffect = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_OEMEffect);
                 }
                 return m_OEMEffect;
             }
@@ -512,13 +509,12 @@ namespace DOL.AI.Brain
                     spell.Value = 85;
                     spell.Duration = 60;
                     spell.SpellID = 11713;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = "StrengthConstitutionDebuff";
                     spell.Uninterruptible = true;
                     spell.MoveCast = true;
                     spell.DamageType = (int) eDamageType.Energy;
                     m_FeederSCDebuff = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_FeederSCDebuff);
                 }
                 return m_FeederSCDebuff;
             }
@@ -543,13 +539,12 @@ namespace DOL.AI.Brain
                     spell.Value = 24;
                     spell.Duration = 60;
                     spell.SpellID = 11715;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = "CombatSpeedDebuff";
                     spell.Uninterruptible = true;
                     spell.MoveCast = true;
                     spell.DamageType = (int) eDamageType.Energy;
                     m_FeederHasteDebuff = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_FeederHasteDebuff);
                 }
                 return m_FeederHasteDebuff;
             }
@@ -574,13 +569,12 @@ namespace DOL.AI.Brain
                     spell.Value = 60;
                     spell.Duration = 60;
                     spell.SpellID = 11865;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = eSpellType.SpeedDecrease.ToString();
                     spell.Uninterruptible = true;
                     spell.MoveCast = true;
                     spell.DamageType = (int)eDamageType.Body;
                     m_FeederRoot = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_FeederRoot);
                 }
                 return m_FeederRoot;
             }

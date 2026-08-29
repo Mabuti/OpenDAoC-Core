@@ -63,12 +63,12 @@ namespace DOL.GS
             INpcTemplate npcTemplate = NpcTemplateMgr.GetTemplate(60159351);
             LoadTemplate(npcTemplate);
 
-            ConservatorBrain.spampoison = false;
-            ConservatorBrain.spamaoe = false;
             RespawnInterval = ServerProperties.Properties.SET_SI_EPIC_ENCOUNTER_RESPAWNINTERVAL * 60000; //1min is 60000 miliseconds
             Faction = FactionMgr.GetFactionByID(96);
 
             ConservatorBrain sBrain = new ConservatorBrain();
+            sBrain.spampoison = false;
+            sBrain.spamaoe = false;
             SetOwnBrain(sBrain);
             LoadedFromScript = false; //load from database
             SaveIntoDatabase();
@@ -195,8 +195,8 @@ namespace DOL.AI.Brain
             }
             return 0;
         }
-        public static bool spampoison = false;
-        public static bool spamaoe = false;
+        public bool spampoison = false;
+        public bool spamaoe = false;
         public override void Think()
         {
             if (!CheckProximityAggro())
@@ -282,13 +282,12 @@ namespace DOL.AI.Brain
                     spell.Duration = 40;
                     spell.Frequency = 10; 
                     spell.SpellID = 11703;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = "DamageOverTime";
                     spell.Uninterruptible = true;
                     spell.MoveCast = true;
                     spell.DamageType = (int)eDamageType.Energy; //Energy DMG Type
                     m_co_poison = new Spell(spell, 70);
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_co_poison);
                 }
                 return m_co_poison;
             }
@@ -311,13 +310,12 @@ namespace DOL.AI.Brain
                     spell.Range = 1800;
                     spell.Radius = 1200;
                     spell.SpellID = 11704;
-                    spell.Target = "Enemy";
+                    spell.Target = eSpellTarget.ENEMY.ToString();
                     spell.Type = eSpellType.DirectDamageNoVariance.ToString();
                     spell.DamageType = (int)eDamageType.Energy; //Energy DMG Type
                     spell.Uninterruptible = true;
                     spell.MoveCast = true;
                     m_co_aoe = new Spell(spell, 70);                   
-                    SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_co_aoe);
                 }
                 return m_co_aoe;
             }

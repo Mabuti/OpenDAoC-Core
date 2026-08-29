@@ -7,7 +7,7 @@ namespace DOL.GS
 	{
 		public Develin() : base() { }
 
-		public static int KillsRequireToSpawn = 20;
+		public int KillsRequireToSpawn = 20;
 		public override bool AddToWorld()
 		{
 			foreach (GameNPC npc in GetNPCsInRadius(8000))
@@ -20,7 +20,6 @@ namespace DOL.GS
 			KillsRequireToSpawn = Util.Random(20, 40);
 			//log.Warn("KillsRequireToSpawn = " + KillsRequireToSpawn);
 
-			DevelinAdd.DevelinAddCount = 0;
 			DevelinBrain sbrain = new DevelinBrain();
 			SetOwnBrain(sbrain);
 			LoadedFromScript = false;//load from database
@@ -44,9 +43,10 @@ namespace DOL.AI.Brain
 		ushort oldModel;
 		GameNPC.eFlags oldFlags;
 		bool changed;
+		public int DevelinAddsKilled = 0;
 		public override void Think()
 		{
-			if (DevelinAdd.DevelinAddCount >= Develin.KillsRequireToSpawn && Body.CurrentRegion.IsNightTime)
+			if (Body is Develin develin && DevelinAddsKilled >= develin.KillsRequireToSpawn && Body.CurrentRegion.IsNightTime)
 			{
 				if (changed)
 				{
@@ -106,12 +106,27 @@ namespace DOL.GS
 			base.AddToWorld();
 			return true;
 		}
-		public static int DevelinAddCount = 0;
-		public override void Die(GameObject killer)
+		private DevelinBrain _develinBrain;
+		public override void ProcessDeath(GameObject killer)
 		{
 			if (CurrentRegion.IsNightTime)
-				++DevelinAddCount;
-			base.Die(killer);
+			{
+				if (_develinBrain == null || _develinBrain.Body == null || _develinBrain.Body.Brain != _develinBrain || _develinBrain.Body.ObjectState is not eObjectState.Active)
+				{
+					_develinBrain = null;
+					foreach (GameNPC npc in WorldMgr.GetNPCsFromRegion(CurrentRegionID))
+					{
+						if (npc.Brain is DevelinBrain brain)
+						{
+							_develinBrain = brain;
+							break;
+						}
+					}
+				}
+				if (_develinBrain != null)
+					++_develinBrain.DevelinAddsKilled;
+			}
+			base.ProcessDeath(killer);
 		}
 	}
 }

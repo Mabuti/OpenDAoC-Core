@@ -32,7 +32,7 @@ namespace DOL.GS.Movement
 			IList<DbPathPoint> allPathPoints = GameServer.Database.SelectAllObjects<DbPathPoint>();
 			foreach (DbPathPoint pathPoint in allPathPoints)
 			{
-				if (m_pathpointCache.TryGetValue(pathPoint.PathID, out SortedList<int, DbPathPoint> pathPoints))
+				if (m_pathpointCache.TryGetValue(pathPoint.PathId, out SortedList<int, DbPathPoint> pathPoints))
 				{
 					if (!pathPoints.TryAdd(pathPoint.Step, pathPoint))
 						duplicateCount++;
@@ -43,7 +43,7 @@ namespace DOL.GS.Movement
 					{
 						{ pathPoint.Step, pathPoint }
 					};
-					m_pathpointCache.Add(pathPoint.PathID, pList);
+					m_pathpointCache.Add(pathPoint.PathId, pList);
 				}
 			}
 
@@ -83,7 +83,7 @@ namespace DOL.GS.Movement
 
 			foreach (DbPathPoint pathPoint in pathPoints)
 			{
-				m_pathpointCache[pathPoint.PathID].Add(pathPoint.Step, pathPoint);
+				m_pathpointCache[pathPoint.PathId].Add(pathPoint.Step, pathPoint);
 			}
 		}
 
@@ -116,10 +116,7 @@ namespace DOL.GS.Movement
 
 				foreach (DbPathPoint pp in pathPoints.Values)
 				{
-					PathPoint p = new(pp.X, pp.Y, pp.Z, (short) pp.MaxSpeed, pathType)
-					{
-						WaitTime = pp.WaitTime
-					};
+					PathPoint p = new(pp.X, pp.Y, pp.Z, (short) pp.MaxSpeed, pathType, pp.WaitTime, pp.TriggerName);
 					first ??= p;
 					p.Prev = prev;
 
@@ -167,16 +164,43 @@ namespace DOL.GS.Movement
             int i = 1;
             do
             {
-                DbPathPoint dbpp = new DbPathPoint(path.X, path.Y, path.Z, path.MaxSpeed);
+                DbPathPoint dbpp = new DbPathPoint(path.X, path.Y, path.Z, path.MaxSpeed, path.WaitTime, path.TriggerName);
                 dbpp.Step = i++;
-                dbpp.PathID = pathID;
-                dbpp.WaitTime = path.WaitTime;
+                dbpp.PathId = pathID;
                 GameServer.Database.AddObject(dbpp);
                 path = path.Next;
             }
 			while (path != null && path != root);
 
 			UpdatePathInCache(pathID);
+        }
+
+        /// <summary>
+        /// Builds a path from points defined in code, for scripted NPCs that don't use database paths.
+        /// Path points are mutable, so the chain shouldn't be shared between NPCs.
+        /// </summary>
+        /// <returns>The first pathpoint of the path</returns>
+        public static PathPoint CreatePath(EPathType type, short maxSpeed, params (int X, int Y, int Z)[] points)
+        {
+            PathPoint first = null;
+            PathPoint prev = null;
+
+            foreach ((int x, int y, int z) in points)
+            {
+                PathPoint point = new(x, y, z, maxSpeed, type)
+                {
+                    Prev = prev
+                };
+
+                first ??= point;
+
+                if (prev != null)
+                    prev.Next = point;
+
+                prev = point;
+            }
+
+            return first;
         }
 
         /// <summary>

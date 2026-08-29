@@ -80,15 +80,15 @@ namespace DOL.GS
 			base.AddToWorld();
 			return true;
 		}
-        public override void Die(GameObject killer)
+        public override void ProcessDeath(GameObject killer)
         {
 			foreach (GameNPC adds in GetNPCsInRadius(8000))
 			{
 				if (adds != null && adds.IsAlive && adds.Brain is BadbWraithBrain)
 					adds.RemoveFromWorld();
 			}
-			base.Die(killer);
-        }		
+			base.ProcessDeath(killer);
+        }
 	}
 }
 namespace DOL.AI.Brain
@@ -228,12 +228,11 @@ namespace DOL.AI.Brain
 					spell.Name = "Voices of Pain";
 					spell.Range = 1500;
 					spell.SpellID = 11874;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.DirectDamageNoVariance.ToString();
 					spell.Uninterruptible = true;
 					spell.MoveCast = true;
 					m_BadbDD = new Spell(spell, 60);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_BadbDD);
 				}
 				return m_BadbDD;
 			}

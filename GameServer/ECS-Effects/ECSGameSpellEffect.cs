@@ -15,7 +15,6 @@ namespace DOL.GS
         string IConcentrationEffect.Name => Name;
         ushort IConcentrationEffect.Icon => Icon;
         byte IConcentrationEffect.Concentration => SpellHandler.Spell.Concentration;
-        public override ushort Icon => SpellHandler.Spell.Icon;
         public override string Name => SpellHandler.Spell.Name;
         public override bool HasPositiveEffect => SpellHandler != null && SpellHandler.HasPositiveEffect;
         public bool IsAllowedToPulse => NextTick > 0 && PulseFreq > 0;
@@ -31,7 +30,9 @@ namespace DOL.GS
             {
                 PulseFreq = 250;
                 NextTick = 1 + Duration / 2 + StartTick + PulseFreq;
-                TriggersImmunity = spell.IsTriggeringImmunitySnare;
+
+                // Special case for focus snares (BD) since they share the same spell type as normal snares.
+                TriggersImmunity = EffectHelper.GetImmunityEffectFromSpell(spell) is not eEffect.Unknown && !spell.IsFocus;
             }
             else if (spell.IsConcentration)
             {
@@ -40,6 +41,11 @@ namespace DOL.GS
             }
             else if (PulseFreq > 0)
                 NextTick = StartTick;
+        }
+
+        public override long GetNextTick()
+        {
+            return NextTick > 0 && (PulseFreq > 0 || IsConcentrationEffect()) ? NextTick : base.GetNextTick();
         }
 
         public override bool IsConcentrationEffect()
@@ -60,7 +66,7 @@ namespace DOL.GS
         public override void TryApplyImmunity()
         {
             // Only handle players. NPCs have their own immunity logic.
-            if (!TriggersImmunity || OwnerPlayer == null)
+            if (AppliedImmunityType is not ImmunityType.Player)
                 return;
 
             // Summoned pets don't give stun immunities (maybe tweak their spells instead?)
@@ -70,7 +76,7 @@ namespace DOL.GS
             if (SpellHandler is UnresistableStunSpellHandler)
                 return;
 
-            ECSGameEffectFactory.Create(new(Owner, ImmunityDuration, Effectiveness, SpellHandler), (int) PulseFreq, static (in ECSGameEffectInitParams i, int pulseFreq) => new ECSImmunityEffect(i, pulseFreq));
+            ECSGameEffectFactory.Create(new(Owner, ImmunityDuration, Effectiveness, SpellHandler), (int) PulseFreq, static (in i, pulseFreq) => new ECSImmunityEffect(i, pulseFreq));
         }
 
         public override DbPlayerXEffect GetSavedEffect()
@@ -118,7 +124,7 @@ namespace DOL.GS
             int effectiveValue = (int) (value * effectiveness);
 
             if (owner is GamePlayer player && player.UseDetailedCombatLog)
-                player.Out.SendMessage($"BonusCategory: {bonusCategory} | Property: {property}\nValue: {value:0.##} | Effectiveness: {effectiveness:0.##} | EffectiveValue: {effectiveValue}", eChatType.CT_DamageAdd, eChatLoc.CL_SystemWindow);
+                player.Out.SendMessage($"BonusCategory: {bonusCategory} | Property: {property}\nValue: {value:0.##} | Effectiveness: {effectiveness:0.##} | EffectiveValue: {effectiveValue}", eChatType.CT_ResistsChanged, eChatLoc.CL_SystemWindow);
 
             GetPropertyIndexer(owner, bonusCategory)[property] += effectiveValue;
         }

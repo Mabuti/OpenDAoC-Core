@@ -6695,11 +6695,9 @@ namespace DOL.GS
             //11L0
             if (rps is >= 8208750) { player.RealmLevel = 100; }
 
-
             player.Out.SendUpdatePlayer();
             player.Out.SendCharStatsUpdate();
             player.Out.SendUpdatePoints();
-            player.UpdatePlayerStatus();
         }
         #endregion
 
@@ -6731,7 +6729,7 @@ namespace DOL.GS
                 item.IsDropable = false;
                 DbInventoryItem newInventoryItem = GameInventoryItem.Create(unique as DbItemTemplate);
                 player.Inventory.AddItem(eInventorySlot.FirstEmptyBackpack, newInventoryItem);
-                player.Out.SendInventoryItemsUpdate(new DbInventoryItem[] { newInventoryItem });
+                player.Out.SendInventoryItemsUpdate([newInventoryItem]);
                 // player.RemoveBountyPoints(300);
                 //player.RealmPoints -= price;
                 //player.RespecRealm();
@@ -6772,7 +6770,7 @@ namespace DOL.GS
                 unique.Extension = number;
                 DbInventoryItem newInventoryItem = GameInventoryItem.Create(unique as DbItemTemplate);
                 player.Inventory.AddItem(eInventorySlot.FirstEmptyBackpack, newInventoryItem);
-                player.Out.SendInventoryItemsUpdate(new DbInventoryItem[] { newInventoryItem });
+                player.Out.SendInventoryItemsUpdate([newInventoryItem]);
                 // player.RemoveBountyPoints(300);
                 //player.RealmPoints -= price;
                 //player.RespecRealm();

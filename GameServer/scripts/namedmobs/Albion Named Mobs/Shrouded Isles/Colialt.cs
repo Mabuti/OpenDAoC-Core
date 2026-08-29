@@ -70,14 +70,14 @@ namespace DOL.GS
 			base.AddToWorld();
 			return true;
 		}
-        public override void Die(GameObject killer)
+        public override void ProcessDeath(GameObject killer)
         {
 			foreach (GameNPC npc in GetNPCsInRadius(8000))
 			{
 				if (npc != null && npc.IsAlive && npc.Brain is ColialtAddsBrain)
 					npc.Die(this);
 			}
-			base.Die(killer);
+			base.ProcessDeath(killer);
         }
         private void SpawnZombies()
         {
@@ -94,7 +94,7 @@ namespace DOL.GS
         }
 		public override void DealDamage(AttackData ad)
 		{
-			if (ad != null && ad.AttackType == AttackData.eAttackType.Spell && ad.Damage > 0 && ColialtBrain.ColialtPhase)
+			if (ad != null && ad.AttackType == AttackData.eAttackType.Spell && ad.Damage > 0 && Brain is ColialtBrain brain && brain.ColialtPhase)
 			{
 				Health += ad.Damage;
 			}
@@ -102,7 +102,7 @@ namespace DOL.GS
 		}
 		public override void StartAttack(GameObject target)
         {
-			if (ColialtBrain.ColialtPhase)
+			if (Brain is ColialtBrain brain && brain.ColialtPhase)
 				return;
 			else
 				base.StartAttack(target);
@@ -120,7 +120,7 @@ namespace DOL.AI.Brain
 			AggroRange = 600;
 			ThinkInterval = 1500;
 		}
-		public static bool ColialtPhase = false;
+		public bool ColialtPhase = false;
 		private bool CanFollow = false;
 		public override void Think()
 		{
@@ -206,7 +206,6 @@ namespace DOL.AI.Brain
 					spell.MoveCast = true;
 					spell.DamageType = (int)eDamageType.Body;
 					m_ColialtLifeDrain = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_ColialtLifeDrain);
 				}
 				return m_ColialtLifeDrain;
 			}

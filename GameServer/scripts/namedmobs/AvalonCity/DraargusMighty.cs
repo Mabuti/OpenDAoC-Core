@@ -40,9 +40,11 @@ namespace DOL.GS
 			get { return 30000; }
 		}
 
+		private DraugynSphere _sphere;
+		private bool IsSphereActive => _sphere != null && _sphere.IsAlive && _sphere.ObjectState is eObjectState.Active;
 		public override void StartAttack(GameObject target)
 		{
-			if (DraugynSphere.SphereCount > 0)
+			if (IsSphereActive)
 				return;
 			else
 				base.StartAttack(target);
@@ -52,7 +54,7 @@ namespace DOL.GS
 		{
 			if (IsAlive && keyName == GS.Abilities.CCImmunity)
 				return true;
-			if (DraugynSphere.SphereCount > 0 && IsAlive && keyName == GS.Abilities.DamageImmunity)
+			if (IsSphereActive && IsAlive && keyName == GS.Abilities.DamageImmunity)
 				return true;
 			return base.HasAbility(keyName);
 		}
@@ -74,7 +76,7 @@ namespace DOL.GS
 		}
 		public void CreateSphere()
         {
-			if (DraugynSphere.SphereCount == 0)
+			if (!IsSphereActive)
 			{
 				DraugynSphere Add = new DraugynSphere();
 				Add.X = 26766;
@@ -83,6 +85,7 @@ namespace DOL.GS
 				Add.CurrentRegion = CurrentRegion;
 				Add.Heading = 966;
 				Add.AddToWorld();
+				_sphere = Add;
 			}
 		}
 	}
@@ -133,13 +136,12 @@ namespace DOL.AI.Brain
 					spell.Name = "Dra'argus Shield";
 					spell.TooltipId = 57;
 					spell.SpellID = 11800;
-					spell.Target = "Self";
+					spell.Target = eSpellTarget.SELF.ToString();
 					spell.Type = "DamageShield";
 					spell.Uninterruptible = true;
 					spell.MoveCast = true;
 					spell.DamageType = (int)eDamageType.Heat;
 					m_FireDS = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_FireDS);
 				}
 				return m_FireDS;
 			}
@@ -189,23 +191,13 @@ namespace DOL.GS
 		{
 			get { return 10000; }
 		}
-		public static int SphereCount = 0;
-		public static bool IsSphereDead = false;
-        public override void Die(GameObject killer)
-        {
-			--SphereCount;
-			IsSphereDead = true;
-            base.Die(killer);
-        }
         public override bool AddToWorld()
 		{
 			INpcTemplate npcTemplate = NpcTemplateMgr.GetTemplate(60160133);
 			LoadTemplate(npcTemplate);
-			IsSphereDead = false;
 
 			Faction = FactionMgr.GetFactionByID(9);
 			MaxSpeedBase = 0;
-			++SphereCount;
 			RespawnInterval = -1;
 
 			DraugynSphereBrain sbrain = new DraugynSphereBrain();
@@ -264,7 +256,7 @@ namespace DOL.AI.Brain
                 {
 					if(player != null)
                     {
-						if(player.IsAlive && AggroList.ContainsKey(player) && player.Client.Account.PrivLevel == 1)
+						if(player.IsAlive && IsInAggroList(player) && player.Client.Account.PrivLevel == 1)
                         {
 							if(!player.IsWithinRadius(Body,200))
                             {
@@ -295,12 +287,11 @@ namespace DOL.AI.Brain
 					spell.Range = 500;
 					spell.Radius = 500;
 					spell.SpellID = 11799;
-					spell.Target = "Area";
+					spell.Target = eSpellTarget.AREA.ToString();
 					spell.Type = eSpellType.DirectDamageNoVariance.ToString();
 					spell.Uninterruptible = true;
 					spell.DamageType = (int)eDamageType.Heat;
 					m_Sphere_pbaoe = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Sphere_pbaoe);
 				}
 				return m_Sphere_pbaoe;
 			}

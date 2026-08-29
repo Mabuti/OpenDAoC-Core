@@ -12,6 +12,9 @@ namespace DOL.GS
 
         public override void OnStartEffect()
         {
+            if (IsBeingReplaced)
+                return;
+
             if (Owner is not GameNPC charmNpc)
                 return;
 
@@ -41,11 +44,14 @@ namespace DOL.GS
 
         public override void OnStopEffect()
         {
+            if (IsBeingReplaced)
+                return;
+
             if (Owner is not GameNPC charmNpc)
                 return;
 
             foreach (ECSGameSpellEffect immunityEffect in charmNpc.effectListComponent.GetSpellEffects().Where(e => e.TriggersImmunity && e is ECSImmunityEffect))
-                immunityEffect.Stop();
+                immunityEffect.End();
 
             ControlledMobBrain oldBrain = SpellHandler.Caster.ControlledBrain as ControlledMobBrain;
             SpellHandler.Caster.RemoveControlledBrain(oldBrain);
@@ -54,6 +60,7 @@ namespace DOL.GS
             if (oldBrain != null)
             {
                 oldBrain.ClearAggroList();
+                charmNpc.StopMoving();
                 charmNpc.StopAttack();
                 charmNpc.StopCurrentSpellcast();
                 charmNpc.RemoveBrain(oldBrain);
@@ -109,7 +116,7 @@ namespace DOL.GS
             if (!keepSongAlive)
             {
                 ECSPulseEffect song = EffectListService.GetPulseEffectOnTarget(SpellHandler.Caster, SpellHandler.Spell);
-                song?.Stop();
+                song?.End();
             }
         }
     }

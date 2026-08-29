@@ -1,13 +1,10 @@
-﻿using DOL.Database;
+﻿using System;
+using System.Collections.Generic;
+using System.Text;
+using DOL.Database;
 using DOL.GS.Housing;
 using DOL.GS.Keeps;
 using DOL.GS.PacketHandler;
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace DOL.GS
 {
@@ -525,7 +522,7 @@ namespace DOL.GS
 					{
 						if (player.Client.Account.PrivLevel > (uint)ePrivLevel.Player)
 						{
-							player.Out.SendMessage("No portal keep found.", eChatType.CT_Skill, eChatLoc.CL_SystemWindow);
+							player.Out.SendMessage("No portal keep found.", eChatType.CT_Items, eChatLoc.CL_SystemWindow);
 						}
 						return null;
 					}
@@ -569,7 +566,7 @@ namespace DOL.GS
 				}
 
 				// Check if the house at the player's house bind location still exists
-				ArrayList houses = (ArrayList)HouseMgr.GetHousesCloseToSpot((ushort)player.
+				var houses = HouseMgr.GetHousesCloseToSpot((ushort)player.
 					BindHouseRegion, player.BindHouseXpos, player.
 					BindHouseYpos, 700);
 				if (houses.Count == 0)
@@ -580,8 +577,8 @@ namespace DOL.GS
 				}
 
 				// Check if the house at the player's house bind location contains a bind stone
-				House targetHouse = (House)houses[0];
-				IDictionary<uint, DbHouseHookPointItem> hookpointItems = targetHouse.HousepointItems;
+				House targetHouse = houses[0];
+				var hookpointItems = targetHouse.HousePointItems;
 				Boolean hasBindstone = false;
 
 				foreach (KeyValuePair<uint, DbHouseHookPointItem> targetHouseItem in hookpointItems)

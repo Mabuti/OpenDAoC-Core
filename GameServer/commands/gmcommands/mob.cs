@@ -10,7 +10,6 @@ using DOL.GS.Housing;
 using DOL.GS.Movement;
 using DOL.GS.PacketHandler;
 using DOL.GS.Quests;
-using static DOL.AI.Brain.StandardMobBrain;
 
 namespace DOL.GS.Commands
 {
@@ -2944,6 +2943,7 @@ namespace DOL.GS.Commands
 
 			List<string> text = new();
 			ABrain brain = targetMob.Brain;
+			StandardMobBrain standardBrain = brain as StandardMobBrain;
 
 			if (brain != null)
 			{
@@ -2959,12 +2959,6 @@ namespace DOL.GS.Commands
 				text.Add("");
 			}
 
-			if (targetMob.IsReturningToSpawnPoint)
-			{
-				text.Add("IsReturningToSpawnPoint: " + targetMob.IsReturningToSpawnPoint);
-				text.Add("");
-			}
-
 			text.Add("InCombat: " + targetMob.InCombat);
 			text.Add("AttackState: " + targetMob.attackComponent.AttackState);
 			text.Add("LastCombatPVE: " + targetMob.LastCombatTickPvE);
@@ -2976,27 +2970,27 @@ namespace DOL.GS.Commands
 			text.Add("");
 
 			if (targetMob.TargetObject != null)
-			{
 				text.Add("TargetObject: " + targetMob.TargetObject.Name);
-				text.Add("InView: " + targetMob.TargetInView);
-			}
 
-			if (targetMob.Brain is StandardMobBrain standardBrain)
+			if (targetMob.IsInterrupted(out GameLiving lastInterrupter))
+				text.Add("LastInterrupter: " + lastInterrupter.Name);
+
+			if (standardBrain != null)
 			{
-				int pendingLosCheckCount = standardBrain.PendingLosCheckCount;
-				
-				if (pendingLosCheckCount != 0)
-					text.Add($"PendingLosCheckCount: {pendingLosCheckCount}");
+				int pendingAggroLosCheckCount = standardBrain.PendingAggroLosCheckCount;
 
-				List<OrderedAggroListElement> aggroList = standardBrain.GetOrderedAggroList();
+				if (pendingAggroLosCheckCount != 0)
+					text.Add($"PendingAggroLosCheckCount: {pendingAggroLosCheckCount}");
+
+				var aggroList = standardBrain.GetAggroListDebug();
 
 				if (aggroList.Count > 0)
 				{
 					text.Add("");
 					text.Add("Aggro List:");
 
-					foreach (OrderedAggroListElement orderedAggroListElement in aggroList)
-						text.Add($"{orderedAggroListElement.Living.Name}: {orderedAggroListElement.AggroAmount}");
+					foreach ((GameLiving living, long amount) in aggroList)
+						text.Add($"{living.Name}: {amount}");
 				}
 			}
 
@@ -3007,20 +3001,6 @@ namespace DOL.GS.Commands
 
 				foreach (GameLiving attacker in targetMob.attackComponent.AttackerTracker.Attackers)
 					text.Add(attacker.Name);
-			}
-
-			List<ECSGameEffect> allEffects = targetMob.effectListComponent.GetEffects();
-
-			if (allEffects.Count > 0)
-			{
-				text.Add("");
-				text.Add("Effect List:");
-
-				foreach (ECSGameEffect effect in allEffects)
-				{
-					long remaining = effect.IsConcentrationEffect() ? -1 : effect.GetRemainingTimeForClient();
-					text.Add($"{effect.Name} (type: {effect.GetType()}) (remaining: {remaining}) (source: {(effect.SpellHandler == null ? targetMob.Name : effect.SpellHandler.Caster.Name)})");
-				}
 			}
 
 			client.Out.SendCustomTextWindow("Mob State", text);

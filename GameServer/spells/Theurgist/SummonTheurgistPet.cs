@@ -81,8 +81,7 @@ namespace DOL.GS.Spells
 			base.ApplyEffectOnTarget(target);
 
 			m_pet.TargetObject = target;
-			(m_pet.Brain as IOldAggressiveBrain).AddToAggroList(target, 1);
-			m_pet.Brain.Think();
+			(m_pet.Brain as IOldAggressiveBrain).AddToAggroList(target);
 			Caster.UpdatePetCount(m_pet, true);
 		}
 

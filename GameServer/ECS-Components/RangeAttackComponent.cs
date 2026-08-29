@@ -1,6 +1,7 @@
 ﻿using System;
 using DOL.Database;
 using DOL.GS.PacketHandler;
+using DOL.GS.ServerProperties;
 using DOL.Language;
 
 namespace DOL.GS
@@ -21,7 +22,7 @@ namespace DOL.GS
         public const int PROJECTILE_FLIGHT_SPEED = 1800; // 1800 units per second. Live value is unknown, but DoL had 1500. Also affects throwing weapons.
         public const int MAX_DRAW_DURATION = 15000;
 
-        public GameObject AutoFireTarget { get; set; } // Used to shoot at a different target than the one currently selected. Always null for NPCs.
+        public GameLiving AutoFireTarget { get; set; } // Used to shoot at a different target than the one currently selected. Always null for NPCs.
         public eRangedAttackState RangedAttackState { get; set; }
         public eRangedAttackType RangedAttackType { get; set; }
         public eActiveQuiverSlot ActiveQuiverSlot { get; set; }
@@ -88,7 +89,8 @@ namespace DOL.GS
 
             if (_owner is GamePlayer playerOwner)
             {
-                if ((GameLoop.GameLoopTime - AttackStartTime) > MAX_DRAW_DURATION && playerOwner.ActiveWeapon.Object_Type != (int)eObjectType.Crossbow)
+                if (GameLoop.GameLoopTime - AttackStartTime > MAX_DRAW_DURATION &&
+                    (eObjectType) playerOwner.ActiveWeapon.Object_Type is not eObjectType.Crossbow)
                 {
                     playerOwner.Out.SendMessage(LanguageMgr.GetTranslation(playerOwner.Client.Account.Language, "GamePlayer.Attack.TooTired"), eChatType.CT_System, eChatLoc.CL_SystemWindow);
                     return eCheckRangeAttackStateResult.Stop;
@@ -119,13 +121,9 @@ namespace DOL.GS
                         playerOwner.Out.SendMessage(LanguageMgr.GetTranslation(playerOwner.Client.Account.Language, "GamePlayer.Attack.MustSelectQuiver"), eChatType.CT_YouHit, eChatLoc.CL_SystemWindow);
                     else if (!IsAmmoCompatible)
                         playerOwner.Out.SendMessage(LanguageMgr.GetTranslation(playerOwner.Client.Account.Language, "GamePlayer.Attack.CantUseQuiver"), eChatType.CT_YouHit, eChatLoc.CL_SystemWindow);
-                    else if (GameServer.ServerRules.IsAllowedToAttack(playerOwner, (GameLiving)target, false))
+                    else if (GameServer.ServerRules.IsAllowedToAttack(playerOwner, (GameLiving) target, false))
                     {
-                        if (target is GameLiving living &&
-                            RangedAttackType == eRangedAttackType.Critical &&
-                            (living.CurrentSpeed > 90 || // Walk speed == 85, hope that's what they mean.
-                            (living.attackComponent.AttackState && living.InCombat) || // Maybe not 100% correct.
-                            EffectListService.GetEffectOnTarget(living, eEffect.Mez) != null))
+                        if (target is GameLiving living && RangedAttackType is eRangedAttackType.Critical)
                         {
                             /*
                              * http://rothwellhome.org/guides/archery.htm
@@ -147,9 +145,13 @@ namespace DOL.GS
                              * delays) than against fast piercing/thrusting weapon wielders.
                              */
 
-                            // TODO: More checks?
-                            playerOwner.Out.SendMessage(LanguageMgr.GetTranslation(playerOwner.Client.Account.Language, "GamePlayer.Attack.CantCritical"), eChatType.CT_System, eChatLoc.CL_SystemWindow);
-                            RangedAttackType = eRangedAttackType.Normal;
+                            if (living.attackComponent.weaponAction?.IsAttackRoundFinished == false ||
+                                living.CurrentSpeed > 90 ||
+                                living.effectListComponent.ContainsEffectForEffectType(eEffect.Mez))
+                            {
+                                playerOwner.Out.SendMessage(LanguageMgr.GetTranslation(playerOwner.Client.Account.Language, "GamePlayer.Attack.CantCritical"), eChatType.CT_System, eChatLoc.CL_SystemWindow);
+                                RangedAttackType = eRangedAttackType.Normal;
+                            }
                         }
 
                         return eCheckRangeAttackStateResult.Fire;
@@ -159,7 +161,7 @@ namespace DOL.GS
                     return eCheckRangeAttackStateResult.Hold;
                 }
 
-                if (RangedAttackState == eRangedAttackState.Aim)
+                if (RangedAttackState is eRangedAttackState.Aim)
                 {
                     ECSGameEffect volley = EffectListService.GetEffectOnTarget(playerOwner, eEffect.Volley);//volley check to avoid spam
                     if (volley == null)
@@ -169,18 +171,13 @@ namespace DOL.GS
                         return eCheckRangeAttackStateResult.Hold;
                     }
                 }
-                else if (RangedAttackState == eRangedAttackState.ReadyToFire)
+                else if (RangedAttackState is eRangedAttackState.ReadyToFire)
                     return eCheckRangeAttackStateResult.Hold;
-
-                return eCheckRangeAttackStateResult.Fire;
             }
-            else
-            {
-                if (!_owner.IsWithinRadius(target, _owner.attackComponent.AttackRange))
-                    return eCheckRangeAttackStateResult.Stop;
+            else if (Properties.CHECK_RANGE_AT_NPC_RANGED_ATTACK_END && !_owner.IsWithinRadius(target, _owner.attackComponent.AttackRange))
+                return eCheckRangeAttackStateResult.Stop;
 
-                return eCheckRangeAttackStateResult.Fire;
-            }
+            return eCheckRangeAttackStateResult.Fire;
         }
 
         public void RemoveEnduranceAndAmmoOnShot()

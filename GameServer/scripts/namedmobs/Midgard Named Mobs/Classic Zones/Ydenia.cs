@@ -52,7 +52,7 @@ namespace DOL.GS
 			base.AddToWorld();
 			return true;
 		}
-        public override void Die(GameObject killer)
+        public override void ProcessDeath(GameObject killer)
         {
 			var throwPlayer = TempProperties.GetProperty<ECSGameTimer>("ydenia_teleport");//cancel teleport
 			if (throwPlayer != null)
@@ -60,7 +60,7 @@ namespace DOL.GS
 				throwPlayer.Stop();
 				TempProperties.RemoveProperty("ydenia_teleport");
 			}
-			base.Die(killer);
+			base.ProcessDeath(killer);
         }
 		public override void DealDamage(AttackData ad)
 		{
@@ -213,12 +213,11 @@ namespace DOL.AI.Brain
 					spell.Name = "Lifedrain";
 					spell.Range = 1500;
 					spell.SpellID = 12010;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Uninterruptible = true;
 					spell.MoveCast = true;
 					spell.Type = eSpellType.DirectDamageNoVariance.ToString();
 					m_YdeniaDD = new Spell(spell, 60);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_YdeniaDD);
 				}
 				return m_YdeniaDD;
 			}
@@ -243,10 +242,9 @@ namespace DOL.AI.Brain
 					spell.Value = 66;
 					spell.Radius = 400;
 					spell.SpellID = 12011;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.StrengthConstitutionDebuff.ToString();
 					m_Ydenia_SC_Debuff = new Spell(spell, 60);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Ydenia_SC_Debuff);
 				}
 				return m_Ydenia_SC_Debuff;
 			}

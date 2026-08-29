@@ -97,13 +97,12 @@ namespace DOL.GS
 					spell.Range = 350;
 					spell.Duration = 650;
 					spell.SpellID = 11803;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = "Disease";
 					spell.Uninterruptible = true;
 					spell.MoveCast = true;
 					spell.DamageType = (int)eDamageType.Energy; //Energy DMG Type
 					m_DelegaltDisease = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_DelegaltDisease);
 				}
 				return m_DelegaltDisease;
 			}
@@ -121,7 +120,7 @@ namespace DOL.AI.Brain
 			AggroRange = 600;
 			ThinkInterval = 1500;
 		}
-		public static bool IsPulled = false;
+		public bool IsPulled = false;
 		public override void Think()
 		{
 			if (!CheckProximityAggro())

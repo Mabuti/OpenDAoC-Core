@@ -2,7 +2,6 @@ using System;
 using System.Reflection;
 using DOL.AI;
 using DOL.AI.Brain;
-using DOL.Database;
 using DOL.Events;
 using DOL.GS.PacketHandler;
 
@@ -74,26 +73,18 @@ namespace DOL.GS.Scripts
             get { return 40000; }
         }
         public override int MeleeAttackRange => 350;
-        public override bool HasAbility(string keyName)
-        {
-            if (IsReturningToSpawnPoint && keyName == GS.Abilities.CCImmunity)
-                return true;
-
-            return base.HasAbility(keyName);
-        }
 
         /// <summary>
         /// Invoked when Aros the Spiritmaster dies.
         /// </summary>
         /// <param name="killer">The living that got the killing blow.</param>
-        public override void Die(GameObject killer)
+        public override void ProcessDeath(GameObject killer)
         {
             if (killer == null)
                 log.Error("Aros The Spiritmaster Killed: killer is null!");
             else
                 log.Debug("Aros The Spiritmaster Killed: killer is " + killer.Name + ", attackers:");
             base.StopCurrentSpellcast();
-            base.Die(killer);
 
             foreach (String message in m_DeathAnnounce)
             {
@@ -111,6 +102,8 @@ namespace DOL.GS.Scripts
                     npc.Die(killer);
                 }
             }
+
+            base.ProcessDeath(killer);
         }
 
         #region Damage & Heal Events
@@ -130,21 +123,6 @@ namespace DOL.GS.Scripts
                 new TakeDamageEventArgs(source, damageType, damageAmount, criticalAmount));
         }
 
-        /// <summary>
-        /// Take action upon someone healing the enemy.
-        /// </summary>
-        /// <param name="enemy">The living that was healed.</param>
-        /// <param name="healSource">The source of the heal.</param>
-        /// <param name="changeType">The way the living was healed.</param>
-        /// <param name="healAmount">The amount that was healed.</param>
-        public override void EnemyHealed(GameLiving enemy, GameObject healSource, eHealthChangeType changeType,
-            int healAmount)
-        {
-            base.EnemyHealed(enemy, healSource, changeType, healAmount);
-            Brain.Notify(GameLivingEvent.EnemyHealed, this,
-                new EnemyHealedEventArgs(enemy, healSource, changeType, healAmount));
-        }
-
         #endregion
 
         /// <summary>
@@ -154,13 +132,6 @@ namespace DOL.GS.Scripts
         public override void ReturnToSpawnPoint(short speed)
         {
             base.ReturnToSpawnPoint(MaxSpeed);
-        }
-        public override void OnAttackedByEnemy(AttackData ad)
-        {
-            if (IsReturningToSpawnPoint)
-                return;
-
-            base.OnAttackedByEnemy(ad);
         }
 
         #region Health

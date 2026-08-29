@@ -3,12 +3,13 @@ using System.Reflection;
 using DOL.GS.PacketHandler;
 using DOL.GS.PacketHandler.Client.v168;
 using DOL.Language;
+using DOL.Logging;
 
 namespace DOL.GS
 {
     public class PlayerMovementComponent : MovementComponent
     {
-        private static readonly Logging.Logger log = Logging.LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
+        private static readonly Logger log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
 
         private const int BROADCAST_MINIMUM_INTERVAL = 200; // Clients send a position or heading update packet every 200ms at most (when moving or rotating).
         private const int SOFT_LINK_DEATH_THRESHOLD = 5000; // How long does it take without receiving a packet for a client to enter the soft link death state.
@@ -27,6 +28,7 @@ namespace DOL.GS
         public new GamePlayer Owner { get; }
         public int MaxSpeedPercent => MaxSpeed * 100 / GamePlayer.PLAYER_BASE_SPEED;
         public long LastPositionUpdatePacketReceivedTime { get; set; }
+        public bool UseSafePosition { get; set; }
 
         public PlayerMovementComponent(GameLiving owner) : base(owner)
         {
@@ -84,27 +86,26 @@ namespace DOL.GS
             base.TickInternal();
         }
 
-        public void BroadcastPosition()
+        public override void ForceUpdatePosition()
         {
-            PlayerPositionUpdateHandler.BroadcastPosition(Owner.Client);
+            base.ForceUpdatePosition();
+            _playerMovementMonitor.Pause();
         }
 
-        public void BroadcastHeading()
+        public void UpdatePosition(Vector3 newPosition)
         {
-            PlayerHeadingUpdateHandler.BroadcastHeading(Owner.Client);
-        }
-
-        public override void OnPositionUpdate()
-        {
-            base.OnPositionUpdate();
-
             Vector3 oldPosition = _ownerPosition;
-            UpdatePosition();
+
+            _ownerPosition = newPosition;
+            Owner.X = (int) newPosition.X;
+            Owner.Y = (int) newPosition.Y;
+            Owner.Z = (int) newPosition.Z;
 
             if (!oldPosition.EqualsXY(_ownerPosition))
             {
                 Owner.OnPlayerMove();
-                _playerMovementMonitor.RecordPosition();
+                UpdateLastMovementTick();
+                _playerMovementMonitor.RecordPosition(_ownerPosition);
                 _validateMovementOnNextTick = true;
                 Owner.LastPlayerActivityTime = GameLoop.GameLoopTime;
             }
@@ -141,19 +142,24 @@ namespace DOL.GS
             }
         }
 
+        public void BroadcastPosition()
+        {
+            PlayerPositionUpdateHandler.BroadcastPosition(Owner.Client);
+        }
+
+        public void BroadcastHeading()
+        {
+            PlayerHeadingUpdateHandler.BroadcastHeading(Owner.Client);
+        }
+
         public void OnHeadingUpdate()
         {
             _needBroadcastHeading = true;
         }
 
-        public void OnTeleportOrRegionChange()
+        public bool TryGetSafePosition(out Vector3 safePosition)
         {
-            _playerMovementMonitor.OnTeleportOrRegionChange();
-        }
-
-        protected override void UpdatePosition()
-        {
-            _ownerPosition = new(Owner.X, Owner.Y, Owner.Z);
+            return _playerMovementMonitor.TryGetSafePosition(out safePosition) && !safePosition.Equals(_ownerPosition);
         }
     }
 }

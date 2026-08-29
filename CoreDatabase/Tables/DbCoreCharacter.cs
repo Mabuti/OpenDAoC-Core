@@ -93,9 +93,6 @@ namespace DOL.Database
 		private byte m_deathCount;
 		private int m_conLostAtDeath;
 
-		private bool m_hasGravestone;
-		private int m_gravestoneRegion;
-
 		private int m_direction;
 		private int m_maxSpeed;
 
@@ -125,7 +122,6 @@ namespace DOL.Database
 		private int m_respecAmountAllSkill;  // full Respecs.
 		private int m_respecAmountSingleSkill; // Single-Line Respecs
 		private int m_respecAmountRealmSkill; //realm respecs
-		private int m_respecAmountDOL; // Patch 1.84 /respec Mythic
 		private int m_respecAmountChampionSkill; // CL Respecs
 		private bool m_isLevelRespecUsed;
 		private int m_respecBought; // /respec buy
@@ -206,40 +202,6 @@ namespace DOL.Database
             m_autoloot = true;
             m_lastLevelUp = DateTime.Now;
         }
-
-		/// <summary>
-		/// Gets/sets if this character has xp in a gravestone
-		/// </summary>
-		[DataElement(AllowDbNull = false)]
-		public bool HasGravestone
-		{
-			get
-			{
-				return m_hasGravestone;
-			}
-			set
-			{
-				m_hasGravestone = value;
-				Dirty = true;
-			}
-		}
-
-		/// <summary>
-		/// Gets/sets the region id where the gravestone of the player is located
-		/// </summary>
-		[DataElement(AllowDbNull = false)]
-		public int GravestoneRegion
-		{
-			get
-			{
-				return m_gravestoneRegion;
-			}
-			set
-			{
-				m_gravestoneRegion = value;
-				Dirty = true;
-			}
-		}
 
 		/// <summary>
 		/// Gets/sets character constitution
@@ -1336,6 +1298,17 @@ namespace DOL.Database
 			}
 		}
 
+		[DataElement(AllowDbNull = false)]
+		public bool HideGraves
+		{
+			get;
+			set
+			{
+				field = value;
+				Dirty = true;
+			}
+		}
+
 		/// <summary>
 		/// Gets/sets half-level flag
 		/// </summary>
@@ -1475,24 +1448,7 @@ namespace DOL.Database
 				m_respecAmountRealmSkill = value;
 			}
 		}
-		
-		/// <summary>
-		/// Gets/Sets the characters DOL respecs available
-		/// </summary>
-		[DataElement(AllowDbNull = false)]
-		public int RespecAmountDOL
-		{
-			get
-			{
-				return m_respecAmountDOL;
-			}
-			set
-			{
-				Dirty = true;
-				m_respecAmountDOL = value;
-			}
-		}
-		
+
 		/// <summary>
 		/// Gets/sets the characters single-line respecs available
 		/// </summary>
@@ -2303,11 +2259,5 @@ namespace DOL.Database
         /// </summary>
         [Relation(LocalField = "DOLCharacters_ID", RemoteField = "DOLCharactersObjectId", AutoLoad = true, AutoDelete = true)]
         public DbCoreCharacterXCustomParam[] CustomParams;
-
-        /// <summary>
-        /// Random Number Deck for this Character
-        /// </summary>
-        [Relation(LocalField = "DOLCharacters_ID", RemoteField = "DOLCharactersObjectId", AutoLoad = true, AutoDelete = true)]
-        public DbCoreCharacterXDeck[] RandomNumberDeck;
     }
 }

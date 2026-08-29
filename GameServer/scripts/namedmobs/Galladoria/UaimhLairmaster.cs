@@ -1,6 +1,5 @@
 ﻿using System;
 using DOL.AI.Brain;
-using DOL.Database;
 using DOL.Events;
 using DOL.GS.PacketHandler;
 using DOL.GS.Scripts.DOL.AI.Brain;
@@ -10,7 +9,7 @@ namespace DOL.GS.Scripts
     public class UaimhLairmaster : GameEpicBoss
     {
         protected String m_FleeingAnnounce;
-        public static bool IsFleeing = true;
+        public bool IsFleeing = true;
 
         public UaimhLairmaster() : base()
         {
@@ -91,21 +90,6 @@ namespace DOL.GS.Scripts
                 new TakeDamageEventArgs(source, damageType, damageAmount, criticalAmount));
         }
 
-        /// <summary>
-        /// Take action upon someone healing the enemy.
-        /// </summary>
-        /// <param name="enemy">The living that was healed.</param>
-        /// <param name="healSource">The source of the heal.</param>
-        /// <param name="changeType">The way the living was healed.</param>
-        /// <param name="healAmount">The amount that was healed.</param>
-        public override void EnemyHealed(GameLiving enemy, GameObject healSource, eHealthChangeType changeType,
-            int healAmount)
-        {
-            base.EnemyHealed(enemy, healSource, changeType, healAmount);
-            Brain.Notify(GameLivingEvent.EnemyHealed, this,
-                new EnemyHealedEventArgs(enemy, healSource, changeType, healAmount));
-        }
-
         #region Tether
 
         /// <summary>
@@ -115,14 +99,6 @@ namespace DOL.GS.Scripts
         public override void ReturnToSpawnPoint(short speed)
         {
             base.ReturnToSpawnPoint(MaxSpeed);
-        }
-
-        public override void OnAttackedByEnemy(AttackData ad)
-        {
-            if (IsReturningToSpawnPoint)
-                return;
-
-            base.OnAttackedByEnemy(ad);
         }
 
         #region Broadcast Message
@@ -175,10 +151,10 @@ namespace DOL.GS.Scripts
 
         #endregion
 
-        public override void Die(GameObject killer)
+        public override void ProcessDeath(GameObject killer)
         {
             IsFleeing = true;
-            base.Die(killer);
+            base.ProcessDeath(killer);
         }
     }
 
@@ -190,7 +166,7 @@ namespace DOL.GS.Scripts
             protected byte MIN_Size = 60;
 
             protected String m_AggroAnnounce;
-            public static bool IsAggroEnemies = true;
+            public bool IsAggroEnemies = true;
 
             private static readonly Logging.Logger log = Logging.LoggerManager.Create(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 

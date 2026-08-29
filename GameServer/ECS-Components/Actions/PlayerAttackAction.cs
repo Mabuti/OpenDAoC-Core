@@ -7,26 +7,11 @@ namespace DOL.GS
 {
     public class PlayerAttackAction : AttackAction
     {
-        private GamePlayer _playerOwner;
+        private readonly GamePlayer _playerOwner;
 
         public PlayerAttackAction(GamePlayer owner) : base(owner)
         {
             _playerOwner = owner;
-        }
-
-        public override void OnAimInterrupt(GameObject attacker)
-        {
-            string attackTypeMsg;
-
-            if (_playerOwner.ActiveWeapon != null && _playerOwner.ActiveWeapon.Object_Type == (int)eObjectType.Thrown)
-                attackTypeMsg = LanguageMgr.GetTranslation(_playerOwner.Client.Account.Language, "GamePlayer.Attack.Type.Throw");
-            else
-                attackTypeMsg = LanguageMgr.GetTranslation(_playerOwner.Client.Account.Language, "GamePlayer.Attack.Type.Shot");
-
-            if (attacker is GameNPC npcAttacker)
-                _playerOwner.Out.SendMessage(LanguageMgr.GetTranslation(_playerOwner.Client.Account.Language, "GamePlayer.Attack.Interrupted", attacker.GetName(0, true, _playerOwner.Client.Account.Language, npcAttacker), attackTypeMsg), eChatType.CT_YouHit, eChatLoc.CL_SystemWindow);
-            else
-                _playerOwner.Out.SendMessage(LanguageMgr.GetTranslation(_playerOwner.Client.Account.Language, "GamePlayer.Attack.Interrupted", attacker.GetName(0, true), attackTypeMsg), eChatType.CT_YouHit, eChatLoc.CL_SystemWindow);
         }
 
         protected override bool PrepareMeleeAttack()
@@ -75,7 +60,7 @@ namespace DOL.GS
             if (base.FinalizeMeleeAttack())
             {
                 if (_playerOwner.UseDetailedCombatLog)
-                    _playerOwner.Out.SendMessage($"Attack Speed: {_interval / 1000.0}s", eChatType.CT_DamageAdd, eChatLoc.CL_SystemWindow);
+                    _playerOwner.Out.SendMessage($"Attack Speed: {_interval / 1000.0}s", eChatType.CT_ResistsChanged, eChatLoc.CL_SystemWindow);
 
                 StyleComponent.NextCombatStyle = null;
                 StyleComponent.NextCombatBackupStyle = null;
@@ -112,6 +97,24 @@ namespace DOL.GS
             }
 
             return base.FinalizeRangedAttack();
+        }
+
+        protected override void InterruptAim(GameLiving attacker)
+        {
+            string language = _playerOwner.Client.Account.Language;
+            string attackTypeMsg;
+
+            if (_playerOwner.ActiveWeapon != null && (eObjectType) _playerOwner.ActiveWeapon.Object_Type is eObjectType.Thrown)
+                attackTypeMsg = LanguageMgr.GetTranslation(language, "GamePlayer.Attack.Type.Throw");
+            else
+                attackTypeMsg = LanguageMgr.GetTranslation(language, "GamePlayer.Attack.Type.Shot");
+
+            if (attacker is GameNPC npcAttacker)
+                _playerOwner.Out.SendMessage(LanguageMgr.GetTranslation(language, "GamePlayer.Attack.Interrupted", attacker.GetName(0, true, language, npcAttacker), attackTypeMsg), eChatType.CT_YouHit, eChatLoc.CL_SystemWindow);
+            else
+                _playerOwner.Out.SendMessage(LanguageMgr.GetTranslation(language, "GamePlayer.Attack.Interrupted", attacker.GetName(0, true), attackTypeMsg), eChatType.CT_YouHit, eChatLoc.CL_SystemWindow);
+
+            _playerOwner.attackComponent.StopAttack();
         }
     }
 }

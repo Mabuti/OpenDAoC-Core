@@ -1,0 +1,81 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Reflection;
+using DOL.GS.Quests;
+using DOL.Logging;
+using static DOL.GS.RolloverSchedulerService;
+
+namespace DOL.GS
+{
+    public static class PeriodicQuestService
+    {
+        private static readonly Logger log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
+        private static readonly List<QuestRegistration> _registrations = new();
+
+        public static void Initialize()
+        {
+            RegisterQuest<Quests.DailyQuest>(IntervalKey.Daily);
+            RegisterQuest<Quests.WeeklyQuest>(IntervalKey.Weekly);
+            RegisterQuest<Quests.MonthlyQuest>(IntervalKey.Monthly);
+        }
+
+        public static void OnPlayerJoin(GamePlayer player)
+        {
+            DateTime login = player.PreviousLoginDate;
+            uint triggeredMask = 0;
+
+            // Evaluate which intervals need resetting.
+            for (int i = 0; i < _registrations.Count; i++)
+            {
+                QuestRegistration reg = _registrations[i];
+
+                if (login < RolloverSchedulerService.Instance.GetLastRollover(reg.Interval))
+                    triggeredMask |= reg.BitMask;
+            }
+
+            if (triggeredMask == 0)
+                return;
+
+            player.RemoveFinishedQuests(static (quest, mask) =>
+            {
+                for (int i = 0; i < _registrations.Count; i++)
+                {
+                    QuestRegistration reg = _registrations[i];
+
+                    if ((mask & reg.BitMask) != 0 && reg.IsMatch(quest))
+                        return true;
+                }
+
+                return false;
+            }, triggeredMask);
+        }
+
+        private static void RegisterQuest<T>(IntervalKey intervalKey)
+        {
+            // Supports up to 32 different intervals.
+            RolloverSchedulerService.Instance.Subscribe(intervalKey, ResetQuests<T>);
+            _registrations.Add(new(intervalKey, 1u << _registrations.Count, static quest => quest is T));
+        }
+
+        private static void ResetQuests<T>()
+        {
+            List<GamePlayer> players = ClientService.Instance.GetPlayers();
+            GameLoop.ExecuteForEach(players, players.Count, ResetPlayerQuests<T>);
+        }
+
+        private static void ResetPlayerQuests<T>(GamePlayer player)
+        {
+            try
+            {
+                player.RemoveFinishedQuests(static quest => quest is T);
+            }
+            catch (Exception e)
+            {
+                if (log.IsErrorEnabled)
+                    log.Error($"{nameof(ResetPlayerQuests)}<{typeof(T).Name}> failed (Player: {player})", e);
+            }
+        }
+
+        private record struct QuestRegistration(IntervalKey Interval, uint BitMask, Func<AbstractQuest, bool> IsMatch) { }
+    }
+}

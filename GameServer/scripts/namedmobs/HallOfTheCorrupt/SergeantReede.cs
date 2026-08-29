@@ -133,7 +133,6 @@ namespace DOL.GS
             {
                 Styles.Add(SideFollowUp);
             }
-            SergeantReedeBrain.CanWalk = false;
             VisibleActiveWeaponSlots = 16;
             MeleeDamageType = eDamageType.Thrust;
             SergeantReedeBrain sbrain = new SergeantReedeBrain();
@@ -192,7 +191,7 @@ namespace DOL.AI.Brain
             AggroRange = 400;
             ThinkInterval = 1500;
         }
-        public static bool CanWalk = false;
+        public bool CanWalk = false;
         public override void Think()
         {
             if (!CheckProximityAggro())
@@ -244,7 +243,6 @@ namespace DOL.AI.Brain
                     float angle = living.GetAngle(Body);
                     Point2D positionalPoint;
                     positionalPoint = living.GetPointFromHeading((ushort)(living.Heading + (90 * (4096.0 / 360.0))), 65);
-                    //Body.WalkTo(positionalPoint.X, positionalPoint.Y, living.Z, 280);
                     Body.X = positionalPoint.X;
                     Body.Y = positionalPoint.Y;
                     Body.Z = living.Z;

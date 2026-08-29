@@ -143,14 +143,14 @@ namespace DOL.AI.Brain
 		};
 		#endregion
 		#region Nearsight
-		public static GamePlayer randomtarget = null;
-		public static GamePlayer RandomTarget
+		public GamePlayer randomtarget = null;
+		public GamePlayer RandomTarget
 		{
 			get { return randomtarget; }
 			set { randomtarget = value; }
 		}
-		public static bool CanCast = false;
-		public static bool StartCastNS = false;
+		public bool CanCast = false;
+		public bool StartCastNS = false;
 		List<GamePlayer> Enemys_To_NS = new List<GamePlayer>();
 		private int PickRandomTarget(ECSGameTimer timer)
 		{
@@ -172,7 +172,7 @@ namespace DOL.AI.Brain
 				if (CanCast == false)
 				{
 					GamePlayer Target = Enemys_To_NS[Util.Random(0, Enemys_To_NS.Count - 1)];//pick random target from list
-					RandomTarget = Target;//set random target to static RandomTarget
+					RandomTarget = Target;
 					BroadcastMessage(RandomTarget.Name + " can no longer see properly in the vicinity!");
 					new ECSGameTimer(Body, new ECSGameTimer.ECSTimerCallback(ResetDot), 2000);
 					CanCast = true;
@@ -220,12 +220,11 @@ namespace DOL.AI.Brain
 					spell.Damage = 0;
 					spell.DamageType = (int)eDamageType.Cold;
 					spell.SpellID = 18920;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.Nearsight.ToString();
 					spell.Message1 = "You are blinded!";
 					spell.Message2 = "{0} is blinded!";
 					m_NearsightMistressSpell = new Spell(spell, 50);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_NearsightMistressSpell);
 				}
 				return m_NearsightMistressSpell;
 			}
@@ -252,12 +251,11 @@ namespace DOL.AI.Brain
 					spell.Radius = 450;
 					spell.SpellID = 18921;
 					spell.RecastDelay = 0;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.DirectDamageNoVariance.ToString();
 					spell.MoveCast = false;
 					spell.DamageType = (int)eDamageType.Energy; //Energy DMG Type
 					m_AoESpell = new Spell(spell, 60);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_AoESpell);
 				}
 				return m_AoESpell;
 			}

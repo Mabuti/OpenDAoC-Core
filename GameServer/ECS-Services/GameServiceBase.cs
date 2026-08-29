@@ -10,13 +10,12 @@ namespace DOL.GS
     public abstract class GameServiceBase : IGameService
     {
         private static readonly Logger log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
+        [ThreadStatic] private static Stack<List<PostedAction>> _spareLists;
+
+        private List<PostedAction> _actions = new();
+        private readonly Lock _lock = new();
 
         public int EntityCount; // Used for diagnostics.
-        private readonly ConcurrentBag<PostedAction> _actionPool = new();
-        private readonly ConcurrentQueue<PostedAction> _actions = new();
-        private readonly List<PostedAction> _work = new();
-        private bool _hasActions;
-
         public string ServiceName { get; }
 
         protected GameServiceBase()
@@ -31,36 +30,75 @@ namespace DOL.GS
             // service waits for it to complete. Since the target service cannot process posted
             // actions until it ticks, neither side can make progress.
 
-            if (!_actionPool.TryTake(out PostedAction pooledAction))
-                pooledAction = new PostedAction();
+            if (!ActionPool<TState>.Pool.TryTake(out var pooledAction))
+                pooledAction = new();
 
-            pooledAction.Init(this, action, state, Invoker<TState>.Invoke);
-            _actions.Enqueue(pooledAction);
-            Volatile.Write(ref _hasActions, true);
+            pooledAction.Init(this, action, state);
+
+            lock (_lock)
+            {
+                _actions.Add(pooledAction);
+            }
         }
 
         public void ProcessPostedActions()
         {
-            if (!Interlocked.Exchange(ref _hasActions, false))
+            List<PostedAction> batch = TakeBatch();
+
+            if (batch == null)
                 return;
 
-            while (_actions.TryDequeue(out PostedAction action))
-                ProcessPostedActionInternal(action);
+            try
+            {
+                foreach (PostedAction action in batch)
+                    ProcessPostedActionInternal(action);
+            }
+            finally
+            {
+                ReturnList(batch);
+            }
         }
 
         protected void ProcessPostedActionsParallel()
         {
-            if (!Interlocked.Exchange(ref _hasActions, false))
+            List<PostedAction> batch = TakeBatch();
+
+            if (batch == null)
                 return;
 
-            while (_actions.TryDequeue(out PostedAction action))
-                _work.Add(action);
+            try
+            {
+                GameLoop.ExecuteForEach(batch, batch.Count, ProcessPostedActionInternal);
+            }
+            finally
+            {
+                ReturnList(batch);
+            }
+        }
 
-            if (_work.Count <= 0)
-                return;
+        private List<PostedAction> TakeBatch()
+        {
+            lock (_lock)
+            {
+                if (_actions.Count == 0)
+                    return null;
 
-            GameLoop.ExecuteForEach(_work, _work.Count, ProcessPostedActionInternal);
-            _work.Clear();
+                List<PostedAction> batch = _actions;
+                _actions = RentList();
+                return batch;
+            }
+        }
+
+        private static List<PostedAction> RentList()
+        {
+            var stack = _spareLists ??= new();
+            return stack.Count > 0 ? stack.Pop() : new();
+        }
+
+        private static void ReturnList(List<PostedAction> list)
+        {
+            list.Clear();
+            (_spareLists ??= new()).Push(list);
         }
 
         private static void ProcessPostedActionInternal(PostedAction action)
@@ -76,9 +114,7 @@ namespace DOL.GS
             }
             finally
             {
-                GameServiceBase service = action.Service;
-                action.Reset();
-                service._actionPool.Add(action);
+                action.ReturnToPool();
             }
         }
 
@@ -86,38 +122,41 @@ namespace DOL.GS
         public virtual void Tick() { }
         public virtual void EndTick() { }
 
-        private static class Invoker<T>
+        private static class ActionPool<TState>
         {
-            public static readonly Action<object, object> Invoke = static (action, state) => ((Action<T>) action)((T) state);
+            public static ConcurrentBag<PostedAction<TState>> Pool { get; } = new();
         }
 
-        private sealed class PostedAction
+        private abstract class PostedAction
         {
-            private object _action;
-            private object _state;
-            private Action<object, object> _invoker;
+            public GameServiceBase Service { get; protected set; }
+            public abstract void Invoke();
+            public abstract void ReturnToPool();
+        }
 
-            public GameServiceBase Service { get; private set; }
+        private sealed class PostedAction<TState> : PostedAction
+        {
+            private Action<TState> _action;
+            private TState _state;
 
-            public void Init<TState>(GameServiceBase service, Action<TState> action, TState state, Action<object, object> invoker)
+            public void Init(GameServiceBase service, Action<TState> action, TState state)
             {
                 Service = service;
                 _action = action;
                 _state = state;
-                _invoker = invoker;
             }
 
-            public void Invoke()
+            public override void Invoke()
             {
-                _invoker(_action, _state);
+                _action(_state);
             }
 
-            public void Reset()
+            public override void ReturnToPool()
             {
                 Service = null;
                 _action = null;
-                _state = null;
-                _invoker = null;
+                _state = default;
+                ActionPool<TState>.Pool.Add(this);
             }
         }
     }

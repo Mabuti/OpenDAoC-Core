@@ -102,7 +102,7 @@ namespace DOL.GS
 					return false;
 				}
 				t.TempProperties.SetProperty(EMBLEMIZE_ITEM_WEAK, new WeakRef(item));
-				t.Out.SendCustomDialog("Do you agree to put an emblem on this object?", new CustomDialogResponse(EmblemerDialogResponse));
+				t.Out.SendCustomDialog($"Do you agree to put an emblem on this object for {Money.GetString(EmblemNPC.EMBLEM_COST)}?", new CustomDialogResponse(EmblemerDialogResponse));
 			}
 			else
 				t.Out.SendMessage("I can not put an emblem on this item.", eChatType.CT_System, eChatLoc.CL_SystemWindow);
@@ -135,9 +135,9 @@ namespace DOL.GS
 			}
 
 			item.Emblem = player.Guild.Emblem;
-			player.Out.SendInventoryItemsUpdate(new DbInventoryItem[] {item});
+			player.Out.SendInventoryItemsUpdate([item]);
 			if (item.SlotPosition < (int) eInventorySlot.FirstBackpack)
-				player.UpdateEquipmentAppearance();
+				player.BroadcastEquipmentUpdate();
 			SayTo(player, eChatLoc.CL_ChatWindow, "I have put an emblem on your item.");
 			return;
 		}

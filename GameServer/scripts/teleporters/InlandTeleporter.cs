@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using DOL.Database;
 using DOL.GS.Housing;
@@ -331,7 +330,7 @@ namespace DOL.GS.Scripts
                 }
 
                 // Check if the house at the player's house bind location still exists
-                ArrayList houses = (ArrayList) HouseMgr.GetHousesCloseToSpot((ushort) player.BindHouseRegion,
+                var houses = HouseMgr.GetHousesCloseToSpot((ushort) player.BindHouseRegion,
                     player.BindHouseXpos, player.BindHouseYpos, 700);
                 if (houses.Count == 0)
                 {
@@ -341,8 +340,8 @@ namespace DOL.GS.Scripts
                 }
 
                 // Check if the house at the player's house bind location contains a bind stone
-                House targetHouse = (House) houses[0];
-                IDictionary<uint, DbHouseHookPointItem> hookpointItems = targetHouse.HousepointItems;
+                House targetHouse = houses[0];
+                var hookpointItems = targetHouse.HousePointItems;
                 Boolean hasBindstone = false;
 
                 foreach (KeyValuePair<uint, DbHouseHookPointItem> targetHouseItem in hookpointItems)
@@ -501,7 +500,7 @@ namespace DOL.GS.Scripts
 
             if (player.Client.Account.PrivLevel > 1)
                 player.Out.SendMessage("Uni-Portal spell not found.",
-                    eChatType.CT_Skill, eChatLoc.CL_SystemWindow);
+                    eChatType.CT_Items, eChatLoc.CL_SystemWindow);
 
 
             this.OnTeleport(player, destination);

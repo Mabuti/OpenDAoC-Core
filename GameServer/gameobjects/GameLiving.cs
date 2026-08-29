@@ -35,7 +35,8 @@ namespace DOL.GS
 
 		#region Combat
 
-		public bool IsBeingHandledByReaperService { get; set; }
+		private bool _isBeingHandledByReaperService;
+		public bool IsBeingHandledByReaperService => Volatile.Read(ref _isBeingHandledByReaperService);
 
 		protected string m_lastInterruptMessage;
 		public string LastInterruptMessage
@@ -47,6 +48,8 @@ namespace DOL.GS
 		// Both represent what percentage of this entity's target's defenses should be used, not how much is removed.
 		public virtual double DualWieldDefensePenetrationFactor => 0.5;
 		public virtual double TwoHandedDefensePenetrationFactor => 0.5;
+
+		public virtual bool BenefitsFromRelics => false;
 
 		/// <summary>
 		/// Can this living accept any item regardless of tradable or droppable?
@@ -222,7 +225,7 @@ namespace DOL.GS
 
 		public virtual bool InCombatPvE => LastCombatTickPvE > 0 && LastCombatTickPvE + IN_COMBAT_DURATION >= GameLoop.GameLoopTime;
 		public virtual bool InCombatPvP => LastCombatTickPvP > 0 && LastCombatTickPvP + IN_COMBAT_DURATION >= GameLoop.GameLoopTime;
-		public virtual bool InCombat => InCombatInLast(IN_COMBAT_DURATION);
+		public virtual bool InCombat => InCombatInLast(IN_COMBAT_DURATION) || IsCrowdControlled;
 
 		public virtual bool InCombatInLast(int milliseconds)
 		{
@@ -311,41 +314,49 @@ namespace DOL.GS
 			return GetModified(eProperty.Strength);
 		}
 
-		/// <summary>
-		/// calculate item armor factor influenced by quality, con and duration
-		/// </summary>
-		/// <param name="slot"></param>
-		/// <returns></returns>
 		public virtual double GetArmorAF(eArmorSlot slot)
 		{
-			return Math.Max(0, GetModified(eProperty.ArmorFactor) / 6.0);
+			return Math.Max(0, GetModified(eProperty.ArmorFactor) / 5.0);
 		}
 
-		/// <summary>
-		/// Calculates armor absorb level
-		/// </summary>
 		public virtual double GetArmorAbsorb(eArmorSlot slot)
 		{
-			double baseAbsorb = 0;
-
-			if (this is NecromancerPet necromancerPet)
-				baseAbsorb = necromancerPet.Owner.Level * 0.0068; // 34% at owner level 50.
-			else
-				baseAbsorb = Level * 0.0054; // 27% at level 50.
-
-			double absorbBonus = GetModified(eProperty.ArmorAbsorption) / 100.0;
-			double absorptionFromConstitution = StatCalculator.CalculateBuffContributionToAbsorbOrResist(this, eProperty.Constitution) / 5.5;
-			double absorptionFromDexterity = StatCalculator.CalculateBuffContributionToAbsorbOrResist(this, eProperty.Dexterity) / 5.5;
-			double absorb = 1 - (1 - baseAbsorb) * (1 - absorbBonus) * (1 - absorptionFromConstitution) * (1 - absorptionFromDexterity);
+			// Combine base and stats using multiplicative stacking for diminishing returns.
+			// This doesn't apply to eProperty.ArmorAbsorption (normally used as debuffs).
+			// This method doesn't handle eProperty.PhysicalAbsorption (handled by AttackComponent),
+			// and thus doesn't reflect the final absorb.
+			double absorb = 1 - (1 - GetBaseAbsorb()) * (1 - GetStatContributionToArmorAbsorb());
+			absorb *= 1 + GetModified(eProperty.ArmorAbsorption) * 0.01;
 			return Math.Clamp(absorb, 0, 1);
 		}
 
-		/// <summary>
-		/// Gets the weaponskill of weapon
-		/// </summary>
-		public virtual double GetWeaponSkill(DbInventoryItem weapon)
+		private double GetBaseAbsorb()
 		{
-			// Needs to be overridden.
+			const double NECRO_ABSORB_PER_LEVEL = 0.0068; // 34% at lvl 50
+			const double NPC_ABSORB_PER_LEVEL = 0.0054;   // 27% at lvl 50
+
+			// Use owner level for necromancer pets.
+			if (this is NecromancerPet necromancerPet)
+				return necromancerPet.Owner.Level * NECRO_ABSORB_PER_LEVEL;
+
+			return Level * NPC_ABSORB_PER_LEVEL;
+		}
+
+		private double GetStatContributionToArmorAbsorb()
+		{
+			const double DIVISOR = 5.5;
+			double conPart = StatCalculator.CalculateBuffContributionToAbsorbOrResist(this, eProperty.Constitution) / DIVISOR;
+			double dexPart = StatCalculator.CalculateBuffContributionToAbsorbOrResist(this, eProperty.Dexterity) / DIVISOR;
+			return 1 - (1 - conPart) * (1 - dexPart);
+		}
+
+		public virtual int GetClassBaseWeaponSkill(DbInventoryItem weapon)
+		{
+			return 0;
+		}
+
+		public virtual double GetWeaponSkill(int weaponStat, int classBaseWeaponSkill)
+		{
 			return 0;
 		}
 
@@ -636,7 +647,7 @@ namespace DOL.GS
 		/// <returns></returns>
 		public virtual bool IsObjectGreyCon(GameObject obj)
 		{
-			return (ConColor) GetConLevel(obj) <= ConColor.GREY;
+			return (ConColor) GetConLevel(obj) <= ConColor.Grey;
 		}
 
 		/// <summary>
@@ -669,95 +680,84 @@ namespace DOL.GS
 			set { }
 		}
 
-		private readonly Lock _interruptTimerLock = new();
+		private readonly Lock _interruptCallbackLock = new();
 
 		/// <summary>
 		/// Starts the interrupt timer on this living.
 		/// </summary>
 		public virtual void StartInterruptTimer(int duration, eAttackType attackType, GameLiving attacker)
 		{
-			long newInterruptTime = GameLoop.GameLoopTime + duration;
+			long interruptExpireTime = GameLoop.GameLoopTime + duration;
 
 			if (attacker == this)
 			{
-				SelfInterruptTime = newInterruptTime;
+				attackComponent.AttackerTracker.SetSelfInterrupt(interruptExpireTime);
 				return;
 			}
 
-			// 3% reduced interrupt chance per level difference.
-			if (!Util.Chance(100 + (attacker.EffectiveLevel - EffectiveLevel) * 3))
-				return;
-
-			lock (_interruptTimerLock)
+			if (rangeAttackComponent.RangedAttackType is eRangedAttackType.SureShot)
 			{
-				bool wasAlreadyInterrupted = IsBeingInterrupted;
-
-				// Don't update the interrupt time if it's shorter than the current one.
-				// If that's the case, we can assume the target is still being interrupted and isn't able to attack.
-				if (InterruptTime >= newInterruptTime)
-					return;
-
-				InterruptTime = newInterruptTime;
-				LastInterrupter = attacker;
-
-				// If the time is updated, we also check if the target was already interrupted.
-				// This should prevent multiple threads from executing the interrupt code, without expanding the lock.
-				if (wasAlreadyInterrupted)
-					return;
-			}
-
-			// Perform the actual interrupt.
-			if (castingComponent.SpellHandler?.CasterIsAttacked(attacker) == true)
-				return;
-			else if (ActiveWeaponSlot is eActiveWeaponSlot.Distance)
-			{
-				if (attackComponent.AttackState)
-					CheckRangedAttackInterrupt(attacker, attackType);
-				else
+				if (attackType is not eAttackType.MeleeOneHand and
+					not eAttackType.MeleeTwoHand and
+					not eAttackType.MeleeDualWield)
 				{
-					AtlasOF_VolleyECSEffect volley = EffectListService.GetEffectOnTarget(this, eEffect.Volley) as AtlasOF_VolleyECSEffect;
-					volley?.OnAttacked();
+					return;
+				}
+			}
+
+			// 5% reduced interrupt chance per level difference.
+			if (!Util.Chance(100 + (attacker.EffectiveLevel - EffectiveLevel) * 5))
+				return;
+
+			attackComponent.AttackerTracker.SetInterrupt(attacker, interruptExpireTime);
+
+			if (_interruptCallbackLock.TryEnter())
+			{
+				try
+				{
+					if (castingComponent.SpellHandler?.PerformOnAttackedInterruptCheck(attacker) == true)
+						return;
+
+					if (ActiveWeaponSlot is eActiveWeaponSlot.Distance)
+					{
+						if (attackComponent.AttackState)
+							attackComponent.attackAction.PerformOnAttackedInterruptCheck(attacker);
+						else
+						{
+							AtlasOF_VolleyECSEffect volley = EffectListService.GetEffectOnTarget(this, eEffect.Volley) as AtlasOF_VolleyECSEffect;
+							volley?.OnAttacked();
+						}
+					}
+				}
+				finally
+				{
+					_interruptCallbackLock.Exit();
 				}
 			}
 		}
 
-		public GameObject LastInterrupter { get; private set; }
-		public long InterruptTime { get; private set; }
-		public long SelfInterruptTime { get; private set; }
-		public long InterruptRemainingDuration => Math.Max(0, Math.Max(InterruptTime, SelfInterruptTime) - GameLoop.GameLoopTime);
-		public virtual int SelfInterruptDurationOnMeleeAttack => 3000;
-		public virtual bool IsBeingInterrupted => IsBeingInterruptedByOther || IsBeingSelfInterrupted;
-		public bool IsBeingInterruptedByOther => InterruptTime > GameLoop.GameLoopTime;
-		public bool IsBeingSelfInterrupted => SelfInterruptTime > GameLoop.GameLoopTime;
-
-		/// <summary>
-		/// How long does an interrupt last?
-		/// </summary>
+		public virtual bool SelfInterruptsOnMeleeAttack => true;
 		public virtual int SpellInterruptDuration => Properties.SPELL_INTERRUPT_DURATION;
+		public virtual int SpellSelfInterruptDuration => Properties.SPELL_SELF_INTERRUPT_DURATION;
 
-		protected virtual bool CheckRangedAttackInterrupt(GameLiving attacker, eAttackType attackType)
+		public bool IsInterrupted(out GameLiving lastInterrupter)
 		{
-			if (rangeAttackComponent.RangedAttackType == eRangedAttackType.SureShot)
-			{
-				if (attackType is not eAttackType.MeleeOneHand
-					and not eAttackType.MeleeTwoHand
-					and not eAttackType.MeleeDualWield)
-					return false;
-			}
+			return attackComponent.AttackerTracker.IsInterrupted(out lastInterrupter);
+		}
 
-			long rangeAttackHoldStart = rangeAttackComponent.AttackStartTime;
+		public bool IsSelfInterrupted()
+		{
+			return attackComponent.AttackerTracker.IsSelfInterrupted();
+		}
 
-			if (rangeAttackHoldStart > 0)
-			{
-				long elapsedTime = GameLoop.GameLoopTime - rangeAttackHoldStart;
-				long halfwayPoint = attackComponent.AttackSpeed(ActiveWeapon) / 2;
-				
-				if (rangeAttackComponent.RangedAttackState is not eRangedAttackState.ReadyToFire and not eRangedAttackState.None && elapsedTime > halfwayPoint)
-					return false;
-			}
+		public bool IsInterruptedOrSelfInterrupted()
+		{
+			return attackComponent.AttackerTracker.IsInterruptedOrSelfInterrupted();
+		}
 
-			attackComponent.StopAttack();
-			return true;
+		public long GetInterruptRemainingDuration()
+		{
+			return attackComponent.AttackerTracker.GetInterruptRemainingDuration();
 		}
 
 		/// <summary>
@@ -797,11 +797,11 @@ namespace DOL.GS
             }
 
             // Proc #1
-            if (procSpell != null && Util.ChanceDouble(procChance))
+            if (procSpell != null && RandomProvider.Chance(RandomContextFactory.OffensiveProcChance(), procChance))
                 StartWeaponMagicalEffect(weapon, ad, SkillBase.GetSpellLine(GlobalSpellsLines.Item_Effects), weapon.ProcSpellID, false);
 
             // Proc #2
-            if (procSpell1 != null && Util.ChanceDouble(procChance))
+            if (procSpell1 != null && RandomProvider.Chance(RandomContextFactory.OffensiveProcChance(), procChance))
                 StartWeaponMagicalEffect(weapon, ad, SkillBase.GetSpellLine(GlobalSpellsLines.Item_Effects), weapon.ProcSpellID1, false);
 
 			// Poison
@@ -823,7 +823,7 @@ namespace DOL.GS
 				{
 					GamePlayer PlayerAttacker = ad.Attacker as GamePlayer;
 					if (PlayerAttacker.GetSpellLine("Spymaster") != null)
-						if (Util.ChanceDouble((double)(15 * 0.0001))) return;
+						if (Util.Chance((double)(15 * 0.0001))) return;
 				}
 				weapon.PoisonCharges--;
 				if (weapon.PoisonCharges <= 0) { weapon.PoisonMaxCharges = 0; weapon.PoisonSpellID = 0; }
@@ -894,10 +894,10 @@ namespace DOL.GS
 			int chance = armor.ProcChance > 0 ? armor.ProcChance : 10;
 			SpellLine spellLine = SkillBase.GetSpellLine(GlobalSpellsLines.Item_Effects);
 
-			if (armor.ProcSpellID != 0 && Util.Chance(chance))
+			if (armor.ProcSpellID != 0 && RandomProvider.Chance(RandomContextFactory.DefensiveProcChance(), chance))
 				StartArmorMagicalEffect(armor, ad.Attacker, SkillBase.FindSpell(armor.ProcSpellID, spellLine), spellLine);
 
-			if (armor.ProcSpellID1 != 0 && Util.Chance(chance))
+			if (armor.ProcSpellID1 != 0 && RandomProvider.Chance(RandomContextFactory.DefensiveProcChance(), chance))
 				StartArmorMagicalEffect(armor, ad.Attacker, SkillBase.FindSpell(armor.ProcSpellID1, spellLine), spellLine);
 		}
 
@@ -944,7 +944,7 @@ namespace DOL.GS
 			}
 		}
 
-		public virtual double TryEvade(AttackData ad, AttackData lastAD)
+		public virtual double TryEvade(AttackData ad, AttackData lastAD, int attackerCount)
 		{
 			// 1. A: It isn't possible to give a simple answer. The formula includes such elements
 			// as your level, your target's level, your level of evade, your QUI, your DEX, your
@@ -953,6 +953,8 @@ namespace DOL.GS
 			// ranged, etc), attack radius, angle of attack, the style you used most recently,
 			// target's offensive RA, debuffs, and a few others. (The type of weapon - large, 1H,
 			// etc - doesn't matter.) ...."
+
+			// 120 degrees angle according to https://www.chadwickgjohnson.com/data/20080715114516/index.html.
 
 			if (IsCrowdControlled || IsSitting || IsCasting)
 				return 0;
@@ -968,10 +970,10 @@ namespace DOL.GS
 					player.EffectList.GetOfType<CombatAwarenessEffect>() != null ||
 					player.EffectList.GetOfType<RuneOfUtterAgilityEffect>() != null)
 					evadeChance = GetModified(eProperty.EvadeChance);
-				else if (IsObjectInFront(ad.Attacker, 180) && (evadeBuff != null || player.HasAbility(Abilities.Evade)))
+				else if (IsObjectInFront(ad.Attacker, 120) && (evadeBuff != null || player.HasAbility(Abilities.Evade)))
 					evadeChance = Math.Max(GetModified(eProperty.EvadeChance), 0);
 			}
-			else if (this is GameNPC && IsObjectInFront(ad.Attacker, 180))
+			else if (this is GameNPC && IsObjectInFront(ad.Attacker, 120))
 				evadeChance = GetModified(eProperty.EvadeChance);
 
 			if (evadeChance > 0)
@@ -981,6 +983,15 @@ namespace DOL.GS
 				// Kelgor's Claw 15% evade.
 				if (lastAD != null && lastAD.Style != null && lastAD.Style.ID == 380)
 					evadeChance += 15 * 0.01;
+
+				// Evade chance is reduced by the number of attackers.
+				// The reduction amount is believed to be relatively small compared to parry.
+				// We use the same formula, but each additional attacker beyond the first contributes 1/3.
+				if (attackerCount > 0)
+				{
+					double effectiveAttackers = 1 + (attackerCount - 1) / 3.0;
+					evadeChance /= effectiveAttackers;
+				}
 
 				// Reduce chance by attacker's defense penetration.
 				evadeChance *= 1 - ad.DefensePenetration;
@@ -1009,21 +1020,19 @@ namespace DOL.GS
 
 		public virtual double TryParry(AttackData ad, AttackData lastAD, int attackerCount)
 		{
-			//1.  Dual wielding does not grant more chances to parry than a single weapon.  Grab Bag 9/12/03
-			//2.  There is no hard cap on ability to Parry.  Grab Bag 8/13/02
-			//3.  Your chances of doing so are best when you are solo, trying to block or parry a style from someone who is also solo. The chances of doing so decrease with grouped, simultaneous attackers.  Grab Bag 7/19/02
-			//4.  The parry chance is divided up amongst the attackers, such that if you had a 50% chance to parry normally, and were under attack by two targets, you would get a 25% chance to parry one, and a 25% chance to parry the other. So, the more people or monsters attacking you, the lower your chances to parry any one attacker. -   Grab Bag 11/05/04
-			//Your chance to parry is affected by the number of attackers, the size of the weapon youre using, and your spec in parry.
+			// 1. Dual wielding does not grant more chances to parry than a single weapon.  Grab Bag 9/12/03
+			// 2. There is no hard cap on ability to Parry.  Grab Bag 8/13/02
+			// 3. Your chances of doing so are best when you are solo, trying to block or parry a style from someone who is also solo. The chances of doing so decrease with grouped, simultaneous attackers.  Grab Bag 7/19/02
+			// 4. The parry chance is divided up amongst the attackers, such that if you had a 50% chance to parry normally, and were under attack by two targets, you would get a 25% chance to parry one, and a 25% chance to parry the other. So, the more people or monsters attacking you, the lower your chances to parry any one attacker. -   Grab Bag 11/05/04
+			// Your chance to parry is affected by the number of attackers, the size of the weapon youre using, and your spec in parry.
 
-			//Parry % = (5% + 0.5% * Parry) / # of Attackers
-			//Parry: (((Dex*2)-100)/40)+(Parry/2)+(Mastery of P*3)+5. < Possible relation to buffs
-			//So, if you have parry of 20 you will have a chance of parrying 15% if there is one attacker. If you have parry of 20 you will have a chance of parrying 7.5%, if there are two attackers.
-			//From Grab Bag: "Dual wielders throw an extra wrinkle in. You have half the chance of shield blocking a dual wielder as you do a player using only one weapon. Your chance to parry is halved if you are facing a two handed weapon, as opposed to a one handed weapon."
-			//So, when facing a 2H weapon, you may see a penalty to your evade.
+			// Parry % = (5% + 0.5% * Parry) / # of Attackers
+			// Parry: (((Dex*2)-100)/40)+(Parry/2)+(Mastery of P*3)+5. < Possible relation to buffs
+			// So, if you have parry of 20 you will have a chance of parrying 15% if there is one attacker. If you have parry of 20 you will have a chance of parrying 7.5%, if there are two attackers.
+			// From Grab Bag: "Dual wielders throw an extra wrinkle in. You have half the chance of shield blocking a dual wielder as you do a player using only one weapon. Your chance to parry is halved if you are facing a two handed weapon, as opposed to a one handed weapon."
+			// So, when facing a 2H weapon, you may see a penalty to your evade.
 
-			//http://www.camelotherald.com/more/453.php
-
-			//Also, before this comparison happens, the game looks to see if your opponent is in your forward arc  to determine that arc, make a 120 degree angle, and put yourself at the point.
+			// 120 degrees angle according to https://www.chadwickgjohnson.com/data/20080715114516/index.html.
 
 			if (IsCrowdControlled || IsSitting || IsCasting)
 				return 0;
@@ -1067,7 +1076,7 @@ namespace DOL.GS
 				{
 					parryChance *= 0.001;
 
-					// Parry chance is divided by the number of attackers.
+					// Parry chance is reduced by the number of attackers.
 					// The penalty was reduced in 1.87.
 					if (attackerCount > 0)
 						parryChance /= attackerCount;
@@ -1099,40 +1108,72 @@ namespace DOL.GS
 			return parryChance;
 		}
 
-		public virtual double TryBlock(AttackData ad, out int shieldSize)
+		public virtual double TryBlock(AttackData ad, bool isGuard, out int shieldSize)
 		{
+			// 1.Quality does not affect the chance to block at this time.  Grab Bag 3/7/03
+			// 2.Condition and enchantment increases the chance to block  Grab Bag 2/27/03
+			// 3.There is currently no hard cap on chance to block  Grab Bag 2/27/03 and 8/16/02
+			// 4.Dual Wielders (enemy) decrease the chance to block  Grab Bag 10/18/02
+			// 5.Block formula: Shield = base 5% + .5% per spec point. Then modified by dex (.1% per point of dex above 60 and below 300?). Further modified by condition, bonus and shield level
+			// 8.The shields size only makes a difference when multiple things are attacking you  a small shield can block one attacker, a medium shield can block two at once, and a large shield can block three.  Grab Bag 4/4/03
+
+			/*
+			 * Q: How do blocking and parrying work?
+			 * 
+			 * A: Both of these skills use dexterity, and the quality of your shield/weapon, to create a numerical value.
+			 * That value is compared to your opponents weapon skill value to determine your chances to block or parry.
+			 * If the numbers are equal, your base chance is determined entirely by your skill level.
+			 * Also, before this comparison happens, the game looks to see if your opponent is in your forward arc.
+			 * To determine that arc, make a 120 degree angle, and put yourself at the point.
+			 * Dual wielders throw an extra wrinkle in. You have half the chance of shield blocking a dual wielder as you do a player using only one weapon.
+			 * Your chance to parry is halved if you are facing a two handed weapon, as opposed to a one handed weapon.
+			 * If you have multiple attackers, your chance to parry any one attack (which is determined in part by your skill in parry) will be divided by the number of attackers.
+			 * Blocking is a little different. Your chances of blocking multiple opponents partly depends on the size of your shield. (One opponent for small, two for medium, three for large.)
+			 * You will have no chance to shield block any more than that number in any given round of combat.
+			*/
+
+			// From Prima guide:
+			// "Your chance to block arrows from a same-level
+			// archer with your shield is 30%. This is modified
+			// by Shield spec, quality and condition of the
+			// shield, and the Engage skill."
+
+			// From 1.34 patch notes:
+			// The base chance to block a same-level archer is 30%, if your shield specialization is maxed for your level this can reach 60%.
+			// Quality and condition act as modifiers to this chance, if your skill-based chance was 50%,
+			// your Shield had a quality of 90% and a condition of 88%,then your actual chance to block would be 40%.
+
+			// From 1.34 patch notes:
+			// Using the Engage skill gives a base 95% chance to block arrows fired by your target.
+			// How many archers you can block attacks from is determined by the size of the shield, the same as Melee targets.
+			// You can Engage one archer and still get normal blocking chances against other archers you are facing, if you have a Medium or Large shield.
+			// Essentially, Engage works exactly the same against arrows as it does against melee attacks.
+
+			// "Visible arc" for block and guard according to https://www.chadwickgjohnson.com/data/20080715114502/index.html (2002)
+			// Note: Visible angle might refer to the "Your target is not visible!" message when attacking something outside the 120 degrees arc.
+			// 120 degrees angle for block (and maybe Guard) according to https://www.chadwickgjohnson.com/data/20080715114516/index.html (2002).
+			// 120 for both block and Guard according to http://web.archive.org/web/20040210014020/http://guides.rpgaheris.com/paladin.htm#_Toc57081020 (2003~2004).
+			// 180 for Guard according to https://www.chadwickgjohnson.com/data/20110518210634/index.html (2010).
+			// 180 for block according to: https://www.darkageofcamelot.com/2017/03/09/friday-grab-bag-03102017/ (2017).
+			// 180 on Live for both block and Guard (2026).
+			// Based on this, it seems the angle for block and Guard was changed from 120 to 180 somewhere between 2002~2003 and ~2010.
+
+			// Shield size isn't meant be used by Guard.
 			shieldSize = 0;
 
 			if (IsCrowdControlled || IsSitting || IsCasting)
 				return 0;
 
-			//1.Quality does not affect the chance to block at this time.  Grab Bag 3/7/03
-			//2.Condition and enchantment increases the chance to block  Grab Bag 2/27/03
-			//3.There is currently no hard cap on chance to block  Grab Bag 2/27/03 and 8/16/02
-			//4.Dual Wielders (enemy) decrease the chance to block  Grab Bag 10/18/02
-			//5.Block formula: Shield = base 5% + .5% per spec point. Then modified by dex (.1% per point of dex above 60 and below 300?). Further modified by condition, bonus and shield level
-			//8.The shields size only makes a difference when multiple things are attacking you  a small shield can block one attacker, a medium shield can block two at once, and a large shield can block three.  Grab Bag 4/4/03
-			//Your chance to block is affected by the number of attackers, the size of the shield youre using, and your spec in block.
-			//Shield% = (5% + 0.5% * Shield)
-			//Small Shield = 1 attacker
-			//Medium Shield = 2 attacker
-			//Large Shield = 3 attacker
-			//Each attacker above these numbers will reduce your chance to block.
-			//From Grab Bag: "Dual wielders throw an extra wrinkle in. You have half the chance of shield blocking a dual wielder as you do a player using only one weapon. Your chance to parry is halved if you are facing a two handed weapon, as opposed to a one handed weapon."
-			//Block: (((Dex*2)-100)/40)+(Shield/2)+(Mastery of B*3)+5. < Possible relation to buffs
+			if (!IsObjectInFront(ad.Attacker, 120))
+				return 0;
 
-			//http://www.camelotherald.com/more/453.php
-
-			//Also, before this comparison happens, the game looks to see if your opponent is in your forward arc  to determine that arc, make a 120 degree angle, and put yourself at the point.
-			//your friend is most likely using a player crafted shield. The quality of the player crafted item will make a significant difference  try it and see.
-
+			double blockChance;
 			DbInventoryItem shield = ActiveLeftWeapon;
+			GamePlayer player = this as GamePlayer;
 
 			// NPCs too require a shield (left hand weapon) to block.
 			if (shield == null)
 				return 0;
-;
-			GamePlayer player = this as GamePlayer;
 
 			if (player != null)
 			{
@@ -1153,39 +1194,88 @@ namespace DOL.GS
 					return 0;
 			}
 
-			if (!IsObjectInFront(ad.Attacker, 120))
-				return 0;
+			if (player != null)
+			{
+				if (!player.HasAbility(Abilities.Shield))
+					return 0;
 
-			double blockChance = CalculateBaseBlockChance(player, shield, ad);
+				bool hasValidWeaponSetup = player.ActiveWeapon == null || player.ActiveWeapon.Item_Type is Slot.RIGHTHAND || player.ActiveWeapon.Item_Type is Slot.LEFTHAND;
 
-			if (blockChance <= 0)
-				return 0;
+				if (!hasValidWeaponSetup)
+					return 0;
+
+				blockChance = GetModified(eProperty.BlockChance);
+				blockChance *= shield.Quality * 0.01 * shield.ConditionPercent * 0.01;
+			}
+			else
+			{
+				blockChance = GetModified(eProperty.BlockChance);
+
+				// Ensure NPCs with no base block chance set don't receive any bonus.
+				// This is probably a NPC with an offhand weapon but no offhand swing chance set either.
+				if (blockChance == 0)
+					return 0;
+			}
+
+			blockChance *= 0.001;
+
+			// 5% additional chance to guard with each Guard level.
+			if (isGuard)
+				blockChance += GetAbilityLevel(Abilities.Guard) * 0.05;
+
+			// Increase block chance by 25% if the attack is ranged, which simulates a base of 30%.
+			if (ad.AttackType is eAttackType.Ranged)
+				blockChance += 0.25;
+
+			// Engage mechanics are not fully known.
+			// Traditionally, people would sometimes put only a few points in Shield to get it, hinting that it provided a good block chance even at low spec.
+			// It is also apparently meant to work with Guard.
+			if (IsEngaging)
+			{
+				EngageECSGameEffect engage = EffectListService.GetEffectOnTarget(this, eEffect.Engage) as EngageECSGameEffect;
+
+				if (IsValidEngageState(engage, attackComponent, ad) && CanEngageTarget(engage, player))
+				{
+					if (!HasSufficientEndurance())
+						engage.Cancel(false, true);
+					else
+					{
+						// This is a guess, and is based on the patch notes stating that the base block chance against arrows is 30% (so +25% from the normal base), and is 95% with engage.
+						// 65% is the difference between both, and gives a base block chance of 70% against melee attacks, before spec and stats.
+						blockChance += 0.65;
+						ConsumeEngageEndurance(player);
+					}
+				}
+			}
 
 			blockChance *= 1 - ad.DefensePenetration;
 
 			if (ad.AttackType is eAttackType.MeleeDualWield)
 				blockChance *= ad.Attacker.DualWieldDefensePenetrationFactor;
 
-			// Infiltrator RR5.
-			if (player != null)
+			// Outdated / irrelevant code for 1.65. Leaving it here for reference.
+			/*if (!isGuard)
 			{
-				OverwhelmEffect Overwhelm = player.EffectList.GetOfType<OverwhelmEffect>();
+				// Infiltrator RR5.
+				if (player != null)
+				{
+					OverwhelmEffect Overwhelm = player.EffectList.GetOfType<OverwhelmEffect>();
 
-				if (Overwhelm != null)
-					blockChance = Math.Max(blockChance - OverwhelmAbility.BONUS, 0);
-			}
+					if (Overwhelm != null)
+						blockChance = Math.Max(blockChance - OverwhelmAbility.BONUS, 0);
+				}
 
-			// This was added in 1.74, then superseded in 1.96 with a 60% cap.
-			// Leaving it here for reference.
-			// Possibly intended to be applied in RvR or PvE only.
-			/*if (shieldSize == 1 && blockChance > 0.8)
-				blockChance = 0.8;
-			else if (shieldSize == 2 && blockChance > 0.9)
-				blockChance = 0.9;
-			else if (shieldSize == 3 && blockChance > 0.99)
-				blockChance = 0.99;*/
+				// This was added in 1.74, then superseded in 1.96 with a 60% cap.
+				// Possibly intended to be applied in RvR or PvE only.
+				if (shieldSize == 1 && blockChance > 0.8)
+					blockChance = 0.8;
+				else if (shieldSize == 2 && blockChance > 0.9)
+					blockChance = 0.9;
+				else if (shieldSize == 3 && blockChance > 0.99)
+					blockChance = 0.99;
+			}*/
 
-			// Engage shouldn't be affected by the cap: https://darkageofcamelot.com/article/friday-grab-bag-11032017
+			// RvR cap. Engage shouldn't be affected by it: https://darkageofcamelot.com/article/friday-grab-bag-11032017
 			if (!IsEngaging && blockChance > Properties.BLOCK_CAP && ad.Attacker is GamePlayer && ad.Target is GamePlayer)
 				blockChance = Properties.BLOCK_CAP;
 
@@ -1214,72 +1304,7 @@ namespace DOL.GS
 		private void ConsumeEngageEndurance(GamePlayer player)
 		{
 			Endurance -= EngageAbilityHandler.ENGAGE_ENDURANCE_COST;
-			player?.Out.SendMessage("You concentrate on blocking the blow!", eChatType.CT_Skill, eChatLoc.CL_SystemWindow);
-		}
-
-		private double CalculateBaseBlockChance(GamePlayer player, DbInventoryItem shield, AttackData ad)
-		{
-			// From Prima guide:
-			// "Your chance to block arrows from a same-level
-			// archer with your shield is 30%. This is modified
-			// by Shield spec, quality and condition of the
-			// shield, and the Engage skill."
-
-			// From 1.34 patch notes:
-			// The base chance to block a same-level archer is 30%, if your shield specialization is maxed for your level this can reach 60%.
-			// Quality and condition act as modifiers to this chance, if your skill-based chance was 50%,
-			// your Shield had a quality of 90% and a condition of 88%,then your actual chance to block would be 40%.
-
-			// From 1.34 patch notes:
-			// Using the Engage skill gives a base 95% chance to block arrows fired by your target.
-			// How many archers you can block attacks from is determined by the size of the shield, the same as Melee targets.
-			// You can Engage one archer and still get normal blocking chances against other archers you are facing, if you have a Medium or Large shield.
-			// Essentially, Engage works exactly the same against arrows as it does against melee attacks.
-
-			double baseBlockChance;
-
-			if (player != null)
-			{
-				if (!player.HasAbility(Abilities.Shield))
-					return 0;
-
-				bool hasValidWeaponSetup = player.ActiveWeapon == null || player.ActiveWeapon.Item_Type is Slot.RIGHTHAND || player.ActiveWeapon.Item_Type is Slot.LEFTHAND;
-
-				if (!hasValidWeaponSetup)
-					return 0;
-
-				baseBlockChance = GetModified(eProperty.BlockChance);
-				baseBlockChance *= shield.Quality * 0.01 * (shield.Condition / (double) shield.MaxCondition);
-			}
-			else
-				baseBlockChance = GetModified(eProperty.BlockChance);
-
-			baseBlockChance /= 1000; // Not a typo.
-
-			// Increase block chance by 25% if the attack is ranged, which simulates a base of 30%.
-			if (ad.AttackType is eAttackType.Ranged)
-				baseBlockChance += 0.25;
-
-			// Engage mechanics are not fully known, but traditionally people would sometimes put only a few points in Shield to get it, hinting that it provided a good block chance even at low spec.
-			if (IsEngaging)
-			{
-				EngageECSGameEffect engage = EffectListService.GetEffectOnTarget(this, eEffect.Engage) as EngageECSGameEffect;
-
-				if (IsValidEngageState(engage, attackComponent, ad) && CanEngageTarget(engage, player))
-				{
-					if (!HasSufficientEndurance())
-						engage.Cancel(false, true);
-					else
-					{
-						// This is a guess, and is based on the patch notes stating that the base block chance against arrows is 30% (so +25% from the normal base), and is 95% with engage.
-						// 65% is the difference between both, and gives a base block chance of 70% against melee attacks, before spec and stats.
-						baseBlockChance += 0.65;
-						ConsumeEngageEndurance(player);
-					}
-				}
-			}
-
-			return baseBlockChance;
+			player?.Out.SendMessage("You concentrate on blocking the blow!", eChatType.CT_Items, eChatLoc.CL_SystemWindow);
 		}
 
 		/// <summary>
@@ -1331,7 +1356,7 @@ namespace DOL.GS
 					{
 						foreach (GameLiving living in attackerPlayer.Group.GetMembersInTheGroup())
 						{
-							if (IsWithinRadius(living, WorldMgr.MAX_EXPFORKILL_DISTANCE) && living.IsAlive && living.ObjectState is eObjectState.Active)
+							if (IsWithinRadius(living, WorldMgr.MAX_EXPFORKILL_DISTANCE) && living.ObjectState is eObjectState.Active)
 							{
 								if (living == attackerPlayer)
 									AddXPGainer(living, damageDealt);
@@ -1368,18 +1393,13 @@ namespace DOL.GS
 
 			Health -= damageAmount + criticalAmount;
 
-			if (IsAlive)
-				return;
-
-			if (_dieLock.TryEnter())
+			// Protect calls to Die, since most overrides aren't thread safe.
+			if (!IsAlive && _dieLock.TryEnter())
 			{
 				try
 				{
 					if (!IsBeingHandledByReaperService)
-					{
-						IsBeingHandledByReaperService = true;
 						Die(source);
-					}
 				}
 				finally
 				{
@@ -1443,7 +1463,7 @@ namespace DOL.GS
 		/// <param name="ad">information about the attack</param>
 		public virtual void OnAttackedByEnemy(AttackData ad)
 		{
-			HandleControlledPetCombatMessage(ad);
+			HandleControlledPetCombatMessageOnAttacked(ad);
 
 			// Note that this function is called whenever an attack is received, regardless of whether that attack was successful.
 			// i.e. missed melee swings and resisted spells still trigger this.
@@ -1451,242 +1471,231 @@ namespace DOL.GS
 			if (ad == null)
 				return;
 
-			// Dead attackers (typically from DoTs) don't put the target in combat, break CC or stealth.
-			bool attackerAlive = ad.Attacker.IsAlive;
+			HandleCrowdControlOnAttacked(ad);
 
-			// Must be above the IsHit/Combat check below, since things like subsequent DoT ticks don't cause combat but should still break CC.
-			if (attackerAlive)
-				HandleCrowdControlOnAttacked(ad);
+			if (!ad.IsHit || !ad.CausesCombat)
+				return;
 
-			if (ad.IsHit && ad.CausesCombat)
+			TryCancelMovementSpeedBuffs(ad, false);
+
+			if (ad.AttackType is not eAttackType.Spell || ad.Damage != 0)
 			{
-				// Dead attackers don't break speed or unstealth.
-				if (attackerAlive)
+				if (IsStealthed && !effectListComponent.ContainsEffectForEffectType(eEffect.Vanish))
+					Stealth(false);
+			}
+
+			if (this is GameNPC gameNpc && ActiveWeaponSlot is eActiveWeaponSlot.Distance && IsWithinRadius(ad.Attacker, 150))
+				gameNpc.StartAttackWithMeleeWeapon(ad.Attacker);
+
+			attackComponent.AddAttacker(ad);
+
+			if (ad.Attacker != this)
+			{
+				if (ad.Attacker.Realm is eRealm.None || Realm is eRealm.None)
+					LastAttackedByEnemyTickPvE = GameLoop.GameLoopTime;
+				else
+					LastAttackedByEnemyTickPvP = GameLoop.GameLoopTime;
+			}
+
+			// Melee attack that actually caused damage.
+			if (ad.IsMeleeAttack && ad.Damage > 0)
+			{
+				// Handle ablatives.
+				List<ECSGameSpellEffect> effects = effectListComponent.GetSpellEffects(eEffect.AblativeArmor);
+
+				for (int i = 0; i < effects.Count; i++)
 				{
-					TryCancelMovementSpeedBuffs(ad, false);
+					if (effects[i] is not AblativeArmorECSGameEffect effect)
+						continue;
 
-					if (ad.AttackType is not eAttackType.Spell || ad.Damage != 0)
-					{
-						if (IsStealthed && !effectListComponent.ContainsEffectForEffectType(eEffect.Vanish))
-							Stealth(false);
-					}
-				}
+					AblativeArmorSpellHandler ablativeArmorSpellHandler = effect.SpellHandler as AblativeArmorSpellHandler;
 
-				if (this is GameNPC gameNpc && ActiveWeaponSlot is eActiveWeaponSlot.Distance && IsWithinRadius(ad.Attacker, 150))
-					gameNpc.StartAttackWithMeleeWeapon(ad.Attacker);
+					if (!ablativeArmorSpellHandler.MatchingDamageType(ref ad))
+						continue;
 
-				attackComponent.AddAttacker(ad);
+					int ablativeHp = effect.RemainingValue;
+					double absorbPercent = AblativeArmorSpellHandler.ValidateSpellDamage((int) effect.SpellHandler.Spell.Damage);
+					int damageAbsorbed = (int) (0.01 * absorbPercent * (ad.Damage + ad.CriticalDamage));
 
-				if (attackerAlive && ad.Attacker != this)
-				{
-					if (ad.Attacker.Realm is eRealm.None || Realm is eRealm.None)
-						LastAttackedByEnemyTickPvE = GameLoop.GameLoopTime;
+					if (damageAbsorbed > ablativeHp)
+						damageAbsorbed = ablativeHp;
+
+					ablativeHp -= damageAbsorbed;
+					ad.Damage -= damageAbsorbed;
+
+					(effect.SpellHandler as AblativeArmorSpellHandler).OnDamageAbsorbed(ad, damageAbsorbed);
+
+					if (ad.Target is GamePlayer playerTarget)
+						playerTarget.Out.SendMessage(LanguageMgr.GetTranslation(playerTarget.Client, "AblativeArmor.Target", damageAbsorbed), eChatType.CT_Spell, eChatLoc.CL_SystemWindow);
+
+					if (ad.Attacker is GamePlayer playerAttacker)
+						playerAttacker.Out.SendMessage(LanguageMgr.GetTranslation(playerAttacker.Client, "AblativeArmor.Attacker", damageAbsorbed), eChatType.CT_Spell, eChatLoc.CL_SystemWindow);
+
+					if (ablativeHp <= 0)
+						effect.End();
 					else
-						LastAttackedByEnemyTickPvP = GameLoop.GameLoopTime;
-				}
-
-				// Melee attack that actually caused damage.
-				if (ad.IsMeleeAttack && ad.Damage > 0)
-				{
-					// Handle ablatives.
-					List<ECSGameSpellEffect> effects = effectListComponent.GetSpellEffects(eEffect.AblativeArmor);
-
-					for (int i = 0; i < effects.Count; i++)
-					{
-						if (effects[i] is not AblativeArmorECSGameEffect effect)
-							continue;
-
-						AblativeArmorSpellHandler ablativeArmorSpellHandler = effect.SpellHandler as AblativeArmorSpellHandler;
-
-						if (!ablativeArmorSpellHandler.MatchingDamageType(ref ad))
-							continue;
-
-						int ablativeHp = effect.RemainingValue;
-						double absorbPercent = AblativeArmorSpellHandler.ValidateSpellDamage((int)effect.SpellHandler.Spell.Damage);
-						int damageAbsorbed = (int)(0.01 * absorbPercent * (ad.Damage + ad.CriticalDamage));
-
-						if (damageAbsorbed > ablativeHp)
-							damageAbsorbed = ablativeHp;
-
-						ablativeHp -= damageAbsorbed;
-						ad.Damage -= damageAbsorbed;
-
-						(effect.SpellHandler as AblativeArmorSpellHandler).OnDamageAbsorbed(ad, damageAbsorbed);
-
-						if (ad.Target is GamePlayer playerTarget)
-							playerTarget.Out.SendMessage(LanguageMgr.GetTranslation(playerTarget.Client, "AblativeArmor.Target", damageAbsorbed), eChatType.CT_Spell, eChatLoc.CL_SystemWindow);
-
-						if (ad.Attacker is GamePlayer playerAttacker)
-							playerAttacker.Out.SendMessage(LanguageMgr.GetTranslation(playerAttacker.Client, "AblativeArmor.Attacker", damageAbsorbed), eChatType.CT_Spell, eChatLoc.CL_SystemWindow);
-
-						if (ablativeHp <= 0)
-							effect.Stop();
-						else
-							effect.RemainingValue = ablativeHp;
-					}
-				}
-
-				// Handle DefensiveProcs.
-				List<ECSGameSpellEffect> dProcEffects = effectListComponent.GetSpellEffects(eEffect.DefensiveProc);
-
-				if (ad.Target == this && dProcEffects != null && ad.AttackType is not eAttackType.Spell)
-				{
-					for (int i = 0; i < dProcEffects.Count; i++)
-						(dProcEffects[i].SpellHandler as DefensiveProcSpellHandler).EventHandler(ad);
+						effect.RemainingValue = ablativeHp;
 				}
 			}
-			else if (ad.IsSpellResisted && ad.Target is GameNPC npc)
-				npc.CancelReturnToSpawnPoint();
 
-			void HandleControlledPetCombatMessage(AttackData ad)
+			// Handle DefensiveProcs.
+			List<ECSGameSpellEffect> dProcEffects = effectListComponent.GetSpellEffects(eEffect.DefensiveProc);
+
+			if (ad.Target == this && dProcEffects != null && ad.AttackType is not eAttackType.Spell)
 			{
-				if (ad.AttackType is eAttackType.Spell)
+				for (int i = 0; i < dProcEffects.Count; i++)
+					(dProcEffects[i].SpellHandler as DefensiveProcSpellHandler).EventHandler(ad);
+			}
+		}
+
+		private void HandleControlledPetCombatMessageOnAttacked(AttackData ad)
+		{
+			if (ad.AttackType is eAttackType.Spell)
+			{
+				if (ad.Damage > 0 && this is GameNPC npc && npc.Brain is IControlledBrain controlledBrain)
 				{
-					if (ad.Damage > 0 && this is GameNPC npc && npc.Brain is IControlledBrain controlledBrain)
+					GamePlayer player = controlledBrain.GetPlayerOwner();
+
+					if (player != null)
 					{
-						GamePlayer player = controlledBrain.GetPlayerOwner();
+						string modMessage = string.Empty;
 
-						if (player != null)
+						if (ad.Modifier > 0)
+							modMessage = $" (+{ad.Modifier})";
+						else if (ad.Modifier < 0)
+							modMessage = $" ({ad.Modifier})";
+
+						player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.HitsForDamage"), ad.Attacker.GetName(0, true), ad.Target.Name, ad.Damage, modMessage), eChatType.CT_Damaged, eChatLoc.CL_SystemWindow);
+
+						if (ad.CriticalDamage > 0)
+							player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.CriticallyHitsForDamage"), ad.Attacker.GetName(0, true), ad.Target.Name, ad.CriticalDamage), eChatType.CT_Damaged, eChatLoc.CL_SystemWindow);
+					}
+				}
+			}
+			else
+			{
+				if (ad.Attacker is GameNPC npc && npc.Brain is IControlledBrain brain)
+				{
+					GamePlayer player = brain.GetPlayerOwner();
+
+					if (player != null)
+					{
+						switch (ad.AttackResult)
 						{
-							string modMessage = string.Empty;
+							case eAttackResult.HitStyle:
+							case eAttackResult.HitUnstyled:
+							{
+								string modMessage;
 
-							if (ad.Modifier > 0)
-								modMessage = $" (+{ad.Modifier})";
-							else if (ad.Modifier < 0)
-								modMessage = $" ({ad.Modifier})";
+								if (ad.Modifier > 0)
+									modMessage = $" (+{ad.Modifier})";
+								else if (ad.Modifier < 0)
+									modMessage = $" ({ad.Modifier})";
+								else
+									modMessage = string.Empty;
 
-							player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.HitsForDamage"), ad.Attacker.GetName(0, true), ad.Target.Name, ad.Damage, modMessage), eChatType.CT_Damaged, eChatLoc.CL_SystemWindow);
+								string attackTypeMsg;
 
-							if (ad.CriticalDamage > 0)
-								player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.CriticallyHitsForDamage"), ad.Attacker.GetName(0, true), ad.Target.Name, ad.CriticalDamage), eChatType.CT_Damaged, eChatLoc.CL_SystemWindow);
+								if (ad.AttackType is eAttackType.Ranged)
+									attackTypeMsg = "shoots";
+								else
+									attackTypeMsg = "attacks";
+
+								if (ad.AttackResult is eAttackResult.HitStyle)
+								{
+									string damageAmount = $" (+{ad.StyleDamage}, GR: {ad.Style.GrowthRate})";
+									string message = LanguageMgr.GetTranslation(player.Client.Account.Language, "StyleProcessor.ExecuteStyle.PerformPerfectly", ad.Style.Name, damageAmount);
+									player.Out.SendMessage(message, eChatType.CT_YouHit, eChatLoc.CL_SystemWindow);
+								}
+
+								player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.YourHits"),
+									ad.Attacker.Name, attackTypeMsg, ad.Target.GetName(0, false), ad.Damage, modMessage),
+									eChatType.CT_YouHit, eChatLoc.CL_SystemWindow);
+
+								if (ad.CriticalDamage > 0)
+								{
+									player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.YourCriticallyHits"),
+										ad.Attacker.Name, ad.Target.GetName(0, false), ad.CriticalDamage) + $" ({ad.CriticalChance}%)",
+										eChatType.CT_YouHit,eChatLoc.CL_SystemWindow);
+								}
+
+								break;
+							}
+							case eAttackResult.Missed:
+							{
+								if (!string.IsNullOrEmpty(ad.BroadcastMessage))
+									player.Out.SendMessage($"{ad.BroadcastMessage} ({ad.MissChance:0.##}%)", eChatType.CT_YouHit, eChatLoc.CL_SystemWindow);
+
+								break;
+							}
+							default:
+							{
+								if (!string.IsNullOrEmpty(ad.BroadcastMessage))
+									player.Out.SendMessage(ad.BroadcastMessage, eChatType.CT_YouHit, eChatLoc.CL_SystemWindow);
+
+								break;
+							}
 						}
 					}
 				}
-				else
+
+				if (ad.Target is GameNPC npcTarget && npcTarget.Brain is IControlledBrain targetBrain)
 				{
-					if (ad.Attacker is GameNPC npc && npc.Brain is IControlledBrain brain)
+					GamePlayer player = targetBrain.GetPlayerOwner();
+
+					if (player != null)
 					{
-						GamePlayer player = brain.GetPlayerOwner();
-
-						if (player != null)
+						switch (ad.AttackResult)
 						{
-							switch (ad.AttackResult)
+							case eAttackResult.Blocked:
 							{
-								case eAttackResult.HitStyle:
-								case eAttackResult.HitUnstyled:
-								{
-									string modMessage;
-
-									if (ad.Modifier > 0)
-										modMessage = $" (+{ad.Modifier})";
-									else if (ad.Modifier < 0)
-										modMessage = $" ({ad.Modifier})";
-									else
-										modMessage = string.Empty;
-
-									string attackTypeMsg;
-
-									if (ad.AttackType is eAttackType.Ranged)
-										attackTypeMsg = "shoots";
-									else
-										attackTypeMsg = "attacks";
-
-									if (ad.AttackResult is eAttackResult.HitStyle)
-									{
-										string damageAmount = $" (+{ad.StyleDamage}, GR: {ad.Style.GrowthRate})";
-										string message = LanguageMgr.GetTranslation(player.Client.Account.Language, "StyleProcessor.ExecuteStyle.PerformPerfectly", ad.Style.Name, damageAmount);
-										player.Out.SendMessage(message, eChatType.CT_YouHit, eChatLoc.CL_SystemWindow);
-									}
-
-									player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.YourHits"),
-										ad.Attacker.Name, attackTypeMsg, ad.Target.GetName(0, false), ad.Damage, modMessage),
-										eChatType.CT_YouHit, eChatLoc.CL_SystemWindow);
-
-									if (ad.CriticalDamage > 0)
-									{
-										player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.YourCriticallyHits"),
-											ad.Attacker.Name, ad.Target.GetName(0, false), ad.CriticalDamage) + $" ({ad.CriticalChance}%)",
-											eChatType.CT_YouHit,eChatLoc.CL_SystemWindow);
-									}
-
-									break;
-								}
-								case eAttackResult.Missed:
-								{
-									if (!string.IsNullOrEmpty(ad.BroadcastMessage))
-										player.Out.SendMessage($"{ad.BroadcastMessage} ({ad.MissChance:0.##}%)", eChatType.CT_YouHit, eChatLoc.CL_SystemWindow);
-
-									break;
-								}
-								default:
-								{
-									if (!string.IsNullOrEmpty(ad.BroadcastMessage))
-										player.Out.SendMessage(ad.BroadcastMessage, eChatType.CT_YouHit, eChatLoc.CL_SystemWindow);
-
-									break;
-								}
+								player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.Blocked"), ad.Attacker.GetName(0, true), ad.Target.Name), eChatType.CT_Action, eChatLoc.CL_SystemWindow);
+								break;
 							}
-						}
-					}
-
-					if (ad.Target is GameNPC npcTarget && npcTarget.Brain is IControlledBrain targetBrain)
-					{
-						GamePlayer player = targetBrain.GetPlayerOwner();
-
-						if (player != null)
-						{
-							switch (ad.AttackResult)
+							case eAttackResult.Parried:
 							{
-								case eAttackResult.Blocked:
-								{
-									player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.Blocked"), ad.Attacker.GetName(0, true), ad.Target.Name), eChatType.CT_Missed, eChatLoc.CL_SystemWindow);
-									break;
-								}
-								case eAttackResult.Parried:
-								{
-									player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.Parried"), ad.Attacker.GetName(0, true), ad.Target.Name), eChatType.CT_Missed, eChatLoc.CL_SystemWindow);
-									break;
-								}
-								case eAttackResult.Evaded:
-								{
-									player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.Evaded"), ad.Attacker.GetName(0, true), ad.Target.Name), eChatType.CT_Missed, eChatLoc.CL_SystemWindow);
-									break;
-								}
-								case eAttackResult.Fumbled:
-								{
-									player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.Fumbled"), ad.Attacker.GetName(0, true)), eChatType.CT_Missed, eChatLoc.CL_SystemWindow);
-									break;
-								}
-								case eAttackResult.Missed:
-								{
-									if (ad.AttackType is eAttackType.Spell)
-										break;
-
-									player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.Misses"), ad.Attacker.GetName(0, true), ad.Target.Name), eChatType.CT_Missed, eChatLoc.CL_SystemWindow);
-									break;
-								}
-								case eAttackResult.HitStyle:
-								case eAttackResult.HitUnstyled:
-								{
-									string modMessage;
-
-									if (ad.Modifier > 0)
-										modMessage = $" (+{ad.Modifier})";
-									else if (ad.Modifier < 0)
-										modMessage = $" ({ad.Modifier})";
-									else
-										modMessage = string.Empty;
-
-									player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.HitsForDamage"), ad.Attacker.GetName(0, true), ad.Target.Name, ad.Damage, modMessage), eChatType.CT_Damaged, eChatLoc.CL_SystemWindow);
-
-									if (ad.CriticalDamage > 0)
-										player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.CriticallyHitsForDamage"), ad.Attacker.GetName(0, true), ad.Target.Name, ad.CriticalDamage), eChatType.CT_Damaged, eChatLoc.CL_SystemWindow);
-
-									break;
-								}
-								default:
-									break;
+								player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.Parried"), ad.Attacker.GetName(0, true), ad.Target.Name), eChatType.CT_Action, eChatLoc.CL_SystemWindow);
+								break;
 							}
+							case eAttackResult.Evaded:
+							{
+								player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.Evaded"), ad.Attacker.GetName(0, true), ad.Target.Name), eChatType.CT_Action, eChatLoc.CL_SystemWindow);
+								break;
+							}
+							case eAttackResult.Fumbled:
+							{
+								player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.Fumbled"), ad.Attacker.GetName(0, true)), eChatType.CT_Action, eChatLoc.CL_SystemWindow);
+								break;
+							}
+							case eAttackResult.Missed:
+							{
+								if (ad.AttackType is eAttackType.Spell)
+									break;
+
+								player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.Misses"), ad.Attacker.GetName(0, true), ad.Target.Name), eChatType.CT_Action, eChatLoc.CL_SystemWindow);
+								break;
+							}
+							case eAttackResult.HitStyle:
+							case eAttackResult.HitUnstyled:
+							{
+								string modMessage;
+
+								if (ad.Modifier > 0)
+									modMessage = $" (+{ad.Modifier})";
+								else if (ad.Modifier < 0)
+									modMessage = $" ({ad.Modifier})";
+								else
+									modMessage = string.Empty;
+
+								player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.HitsForDamage"), ad.Attacker.GetName(0, true), ad.Target.Name, ad.Damage, modMessage), eChatType.CT_Damaged, eChatLoc.CL_SystemWindow);
+
+								if (ad.CriticalDamage > 0)
+									player.Out.SendMessage(string.Format(LanguageMgr.GetTranslation(player.Client.Account.Language, "GameLiving.AttackData.CriticallyHitsForDamage"), ad.Attacker.GetName(0, true), ad.Target.Name, ad.CriticalDamage), eChatType.CT_Damaged, eChatLoc.CL_SystemWindow);
+
+								break;
+							}
+							default:
+								break;
 						}
 					}
 				}
@@ -1702,28 +1711,30 @@ namespace DOL.GS
 				return false;
 
 			bool removeMez = false;
-			bool removeSnare = false; // Immunity-triggering snare/root spells
-			bool removeMovementSpeedDebuff = false; // Non-immunity snares like focus snare, melee snares, DD+Snare spells, etc.
+			bool removeMovementSpeedDebuff = false;
 
 			// Attack was Melee
-			if (ad.AttackType != AttackData.eAttackType.Spell)
+			if (ad.AttackType is not eAttackType.Spell)
 			{
 				switch (ad.AttackResult)
 				{
 					case eAttackResult.HitStyle:
 					case eAttackResult.HitUnstyled:
-						removeSnare = true;
+					{
 						removeMez = true;
 						removeMovementSpeedDebuff = true;
 						break;
+					}
 					case eAttackResult.Blocked:
 					case eAttackResult.Evaded:
 					case eAttackResult.Fumbled:
 					case eAttackResult.Missed:
 					case eAttackResult.Parried:
+					{
 						// Missed melee swings still break mez.
 						removeMez = true;
 						break;
+					}
 				}
 			}
 			// Attack was a Spell. Note that a spell being resisted does not mean it does not break mez.
@@ -1733,7 +1744,6 @@ namespace DOL.GS
 				{
 					// Any damage breaks mez and snare/root.
 					removeMez = true;
-					removeSnare = true;
 					removeMovementSpeedDebuff = true;
 				}
 				else if (ad.SpellHandler is
@@ -1759,35 +1769,32 @@ namespace DOL.GS
 					case eEffect.Mez:
 					{
 						if (removeMez)
-							effect.Stop();
-
-						break;
-					}
-					case eEffect.Snare:
-					{
-						if (removeSnare)
-							effect.Stop();
+							effect.End();
 
 						break;
 					}
 					case eEffect.MovementSpeedDebuff:
 					{
-						if (removeMovementSpeedDebuff && effect is ECSGameSpellEffect spellEffect && spellEffect.SpellHandler.Spell.SpellType is not eSpellType.UnbreakableSpeedDecrease)
-							effect.Stop();
+						if (removeMovementSpeedDebuff &&
+							effect is ECSGameSpellEffect spellEffect &&
+							spellEffect.SpellHandler.Spell.SpellType is not eSpellType.UnbreakableSpeedDecrease and not eSpellType.PreventFlight)
+						{
+							effect.End();
+						}
 
 						break;
 					}
 					case eEffect.Ichor:
 					{
 						if (removeMovementSpeedDebuff)
-							effect.Stop();
+							effect.End();
 
 						break;
 					}
 				}
 			}
 
-			return removeMez || removeSnare || removeMovementSpeedDebuff;
+			return removeMez || removeMovementSpeedDebuff;
 		}
 
 		public virtual void TryCancelMovementSpeedBuffs(AttackData attackData, bool isAttacker)
@@ -1800,14 +1807,12 @@ namespace DOL.GS
 				foreach (ECSGameSpellEffect effect in effects)
 				{
 					// Ignore Whip of Encouragement; Tracker, Chaser, Pursuer Enhancement.
+					// Relying on the `Spell.Target` property to identify these.
 					if (effect.SpellHandler.Spell.Target is eSpellTarget.PET)
-					{
-						if (effect.SpellHandler.Spell.ID is 305 or (>= 895 and <= 897))
-							continue;
-					}
+						continue;
 
 					if (ShouldBeCancelled(attackData, effect))
-						effect.Stop();
+						effect.End();
 				}
 			}
 
@@ -1819,15 +1824,15 @@ namespace DOL.GS
 				foreach (ECSGameSpellEffect effect in ownerEffects)
 				{
 					if (ShouldBeCancelled(attackData, effect))
-						effect.Stop();
+						effect.End();
 				}
 			}
 
 			static bool ShouldBeCancelled(AttackData attackData, ECSGameSpellEffect effect)
 			{
-				// Cancel most movement speed buffs if the attack did any damage.
-				// Otherwise, only cancel non-pulsing ones.
-				return attackData.Damage > 0 || !effect.SpellHandler.Spell.IsPulsing;
+				// Cancel movement speed buffs if the attack did any damage or is a taunt spell.
+				// Non-pulsing movement speed buffs are always canceled.
+				return attackData.Damage > 0 || !effect.SpellHandler.Spell.IsPulsing || attackData.SpellHandler?.Spell.SpellType is eSpellType.Taunt;
 			}
 		}
 
@@ -1937,111 +1942,97 @@ namespace DOL.GS
 		}
 
 		/// <summary>
-		/// Called when an enemy of ours is healed during combat
-		/// </summary>
-		/// <param name="enemy">the enemy</param>
-		/// <param name="healSource">the healer</param>
-		/// <param name="changeType">the healtype</param>
-		/// <param name="healAmount">the healamount</param>
-		public virtual void EnemyHealed(GameLiving enemy, GameObject healSource, eHealthChangeType changeType, int healAmount)
-		{
-			Notify(GameLivingEvent.EnemyHealed, this, new EnemyHealedEventArgs(enemy, healSource, changeType, healAmount));
-		}
-
-		/// <summary>
 		/// Called when this living dies
 		/// </summary>
 		public virtual void Die(GameObject killer)
 		{
-			IsBeingHandledByReaperService = true;
-			ReaperService.KillLiving(this, killer);
+			if (Interlocked.Exchange(ref _isBeingHandledByReaperService, true) == false)
+				ReaperService.KillLiving(this, killer);
+		}
+
+		public void OnReaperServiceHandlingComplete()
+		{
+			Volatile.Write(ref _isBeingHandledByReaperService, false);
 		}
 
 		public virtual void ProcessDeath(GameObject killer)
 		{
-			try
+			attackComponent.StopAttack();
+			List<GamePlayer> playerAttackers = new();
+
+			foreach (GameObject attacker in attackComponent.AttackerTracker.Attackers)
 			{
-				attackComponent.StopAttack();
-				List<GamePlayer> playerAttackers = new();
+				if (attacker is not GameLiving livingAttacker)
+					continue;
 
-				foreach (GameObject attacker in attackComponent.AttackerTracker.Attackers)
+				GamePlayer player = attacker as GamePlayer;
+
+				if (attacker is GameNPC npcAttacker && npcAttacker.Brain is IControlledBrain npcAttackerBrain)
 				{
-					if (attacker is not GameLiving livingAttacker)
-						continue;
-
-					GamePlayer player = attacker as GamePlayer;
-
-					if (attacker is GameNPC npcAttacker && npcAttacker.Brain is IControlledBrain npcAttackerBrain)
-					{
-						// Ok, we're a pet - if our Player owner isn't in the attacker list, let's make them a 'virtual' attacker
-						player = npcAttackerBrain.GetPlayerOwner();
-
-						if (player != null)
-						{
-							if (!attackComponent.AttackerTracker.ContainsAttacker(player))
-							{
-								if (!playerAttackers.Contains(player))
-									playerAttackers.Add(player);
-							}
-
-							// Pet gets the killed message as well
-							livingAttacker.EnemyKilled(this);
-						}
-					}
+					// Ok, we're a pet - if our Player owner isn't in the attacker list, let's make them a 'virtual' attacker
+					player = npcAttackerBrain.GetPlayerOwner();
 
 					if (player != null)
 					{
-						if (!playerAttackers.Contains(player))
-							playerAttackers.Add(player);
-
-						if (player.Group != null)
+						if (!attackComponent.AttackerTracker.ContainsAttacker(player))
 						{
-							foreach (GamePlayer groupPlayer in player.Group.GetPlayersInTheGroup())
-							{
-								if (groupPlayer.IsWithinRadius(this, WorldMgr.MAX_EXPFORKILL_DISTANCE) && playerAttackers.Contains(groupPlayer) == false)
-									playerAttackers.Add(groupPlayer);
-							}
+							if (!playerAttackers.Contains(player))
+								playerAttackers.Add(player);
 						}
-					}
-					else
+
+						// Pet gets the killed message as well
 						livingAttacker.EnemyKilled(this);
+					}
 				}
 
-				foreach (GamePlayer player in playerAttackers)
-					player.EnemyKilled(this);
+				if (player != null)
+				{
+					if (!playerAttackers.Contains(player))
+						playerAttackers.Add(player);
 
-				foreach (Quests.DataQuest q in DataQuestList)
-					q.Notify(GameLivingEvent.Dying, this, new DyingEventArgs(killer, playerAttackers));
-
-				attackComponent.AttackerTracker.Clear();
-
-				// clear all of our targets
-				rangeAttackComponent.AutoFireTarget = null;
-				TargetObject = null;
-
-				// cancel all left effects
-				EffectList.CancelAll();
-				effectListComponent.CancelAll();
-
-				// Stop the regeneration timers
-				StopHealthRegeneration();
-				StopPowerRegeneration();
-				StopEnduranceRegeneration();
-
-				//Reduce health to zero
-				Health = 0;
-
-				// Remove all last attacked times
-				LastAttackedByEnemyTickPvE = 0;
-				LastAttackedByEnemyTickPvP = 0;
-
-				//Let's send the notification at the end
-				Notify(GameLivingEvent.Dying, this, new DyingEventArgs(killer));
+					if (player.Group != null)
+					{
+						foreach (GamePlayer groupPlayer in player.Group.GetPlayersInTheGroup())
+						{
+							if (groupPlayer.IsWithinRadius(this, WorldMgr.MAX_EXPFORKILL_DISTANCE) && playerAttackers.Contains(groupPlayer) == false)
+								playerAttackers.Add(groupPlayer);
+						}
+					}
+				}
+				else
+					livingAttacker.EnemyKilled(this);
 			}
-			finally
-			{
-				IsBeingHandledByReaperService = false;
-			}
+
+			foreach (GamePlayer player in playerAttackers)
+				player.EnemyKilled(this);
+
+			foreach (Quests.DataQuest q in DataQuestList)
+				q.Notify(GameLivingEvent.Dying, this, new DyingEventArgs(killer, playerAttackers));
+
+			attackComponent.AttackerTracker.Clear();
+
+			// clear all of our targets
+			rangeAttackComponent.AutoFireTarget = null;
+			TargetObject = null;
+
+			// cancel all left effects
+			EffectList.CancelAll();
+			effectListComponent.CancelAll();
+
+			// Stop the regeneration timers
+			StopHealthRegeneration();
+			StopPowerRegeneration();
+			StopEnduranceRegeneration();
+
+			//Reduce health to zero
+			Health = 0;
+
+			// Remove all last attacked times
+			LastAttackedByEnemyTickPvE = 0;
+			LastAttackedByEnemyTickPvP = 0;
+
+			//Let's send the notification at the end
+			Notify(GameLivingEvent.Dying, this, new DyingEventArgs(killer));
 		}
 
 		public void GainExperience(eXPSource xpSource, long exp, bool allowMultiply = false)
@@ -2511,12 +2502,7 @@ namespace DOL.GS
 		/// </summary>
 		public virtual void StartHealthRegeneration()
 		{
-			if (!IsAlive || ObjectState is not eObjectState.Active)
-				return;
-
-			if (m_healthRegenerationTimer == null)
-				m_healthRegenerationTimer = new(this, new ECSGameTimer.ECSTimerCallback(HealthRegenerationTimerCallback));
-			else if (m_healthRegenerationTimer.IsAlive)
+			if (m_health == 0 || ObjectState is not eObjectState.Active || m_healthRegenerationTimer.IsAlive)
 				return;
 
 			m_healthRegenerationTimer.Start(GetHealthRegenerationInterval());
@@ -2537,7 +2523,7 @@ namespace DOL.GS
 		/// </summary>
 		public virtual void StopHealthRegeneration()
 		{
-			m_healthRegenerationTimer?.Stop();
+			m_healthRegenerationTimer.Stop();
 		}
 
 		/// <summary>
@@ -2545,7 +2531,7 @@ namespace DOL.GS
 		/// </summary>
 		public virtual void StopPowerRegeneration()
 		{
-			m_powerRegenerationTimer?.Stop();
+			m_powerRegenerationTimer.Stop();
 		}
 
 		/// <summary>
@@ -2553,7 +2539,7 @@ namespace DOL.GS
 		/// </summary>
 		public virtual void StopEnduranceRegeneration()
 		{
-			m_enduRegenerationTimer?.Stop();
+			m_enduRegenerationTimer.Stop();
 		}
 
 		protected virtual int HealthRegenerationTimerCallback(ECSGameTimer callingTimer)
@@ -2580,7 +2566,7 @@ namespace DOL.GS
 		{
 			int maxMana = MaxMana;
 
-			if (IsVampiirOrMauler())
+			if (IsVampiirOrMauler(this))
 			{
 				double onePercMana = Math.Ceiling(maxMana * 0.01);
 
@@ -2603,9 +2589,9 @@ namespace DOL.GS
 
 			return GetPowerRegenerationInterval();
 
-			bool IsVampiirOrMauler()
+			static bool IsVampiirOrMauler(GameLiving living)
 			{
-				if (this is not GamePlayer player)
+				if (living is not GamePlayer player)
 					return false;
 
 				eCharacterClass characterClass = (eCharacterClass) player.CharacterClass.ID;
@@ -2655,6 +2641,124 @@ namespace DOL.GS
 		/// </summary>
 		protected int m_endurance;
 
+		protected byte _cachedHealthPercent;
+		protected byte _cachedManaPercent;
+		protected byte _cachedEndurancePercent;
+		protected byte _cachedConcentrationPercent;
+		protected int _cachedMaxHealthAtPercentCalc = int.MinValue;
+		protected int _cachedMaxManaAtPercentCalc = int.MinValue;
+		protected int _cachedMaxEnduranceAtPercentCalc = int.MinValue;
+		protected int _cachedMaxConcentrationAtPercentCalc = int.MinValue;
+
+		protected byte UpdateCachedHealthPercent(int maxHealth)
+		{
+			_cachedMaxHealthAtPercentCalc = maxHealth;
+			_cachedHealthPercent = (byte) (maxHealth <= 0 ? 0 : Math.Clamp(m_health * 100 / maxHealth, 0, 100));
+			return _cachedHealthPercent;
+		}
+
+		protected byte UpdateCachedManaPercent(int maxMana)
+		{
+			_cachedMaxManaAtPercentCalc = maxMana;
+			_cachedManaPercent = (byte) (maxMana <= 0 ? 0 : Math.Clamp(m_mana * 100 / maxMana, 0, 100));
+			return _cachedManaPercent;
+		}
+
+		protected byte UpdateCachedEndurancePercent(int maxEndurance)
+		{
+			_cachedMaxEnduranceAtPercentCalc = maxEndurance;
+			_cachedEndurancePercent = (byte) (maxEndurance <= 0 ? 0 : Math.Clamp(m_endurance * 100 / maxEndurance, 0, 100));
+			return _cachedEndurancePercent;
+		}
+
+		protected byte UpdateCachedConcentrationPercent(int maxConcentration, int concentration)
+		{
+			_cachedMaxConcentrationAtPercentCalc = maxConcentration;
+			_cachedConcentrationPercent = (byte) (maxConcentration <= 0 ? 0 : Math.Clamp(concentration * 100 / maxConcentration, 0, 100));
+			return _cachedConcentrationPercent;
+		}
+
+		protected int ResolveMaxHealthAndUpdateCache(int computedMaxHealth)
+		{
+			if (computedMaxHealth == _cachedMaxHealthAtPercentCalc)
+				return computedMaxHealth;
+
+			byte oldPercent = _cachedHealthPercent;
+			UpdateCachedHealthPercent(computedMaxHealth);
+
+			if (oldPercent != _cachedHealthPercent)
+				OnCachedHealthPercentChanged(oldPercent, _cachedHealthPercent);
+
+			return computedMaxHealth;
+		}
+
+		protected int ResolveMaxManaAndUpdateCache(int computedMaxMana)
+		{
+			if (computedMaxMana == _cachedMaxManaAtPercentCalc)
+				return computedMaxMana;
+
+			byte oldPercent = _cachedManaPercent;
+			UpdateCachedManaPercent(computedMaxMana);
+
+			if (oldPercent != _cachedManaPercent)
+				OnCachedManaPercentChanged(oldPercent, _cachedManaPercent);
+
+			return computedMaxMana;
+		}
+
+		protected int ResolveMaxEnduranceAndUpdateCache(int computedMaxEndurance)
+		{
+			if (computedMaxEndurance == _cachedMaxEnduranceAtPercentCalc)
+				return computedMaxEndurance;
+
+			byte oldPercent = _cachedEndurancePercent;
+			UpdateCachedEndurancePercent(computedMaxEndurance);
+
+			if (oldPercent != _cachedEndurancePercent)
+				OnCachedEndurancePercentChanged(oldPercent, _cachedEndurancePercent);
+
+			return computedMaxEndurance;
+		}
+
+		protected int ResolveMaxConcentrationAndUpdateCache(int computedMaxConcentration)
+		{
+			if (computedMaxConcentration == _cachedMaxConcentrationAtPercentCalc)
+				return computedMaxConcentration;
+
+			byte oldPercent = _cachedConcentrationPercent;
+			int concentration = Math.Max(0, computedMaxConcentration - effectListComponent.UsedConcentration);
+			UpdateCachedConcentrationPercent(computedMaxConcentration, concentration);
+
+			if (oldPercent != _cachedConcentrationPercent)
+				OnCachedConcentrationPercentChanged(oldPercent, _cachedConcentrationPercent);
+
+			return computedMaxConcentration;
+		}
+
+		protected virtual void OnCachedHealthPercentChanged(byte oldPercent, byte newPercent) { }
+
+		protected virtual void OnCachedManaPercentChanged(byte oldPercent, byte newPercent) { }
+
+		protected virtual void OnCachedEndurancePercentChanged(byte oldPercent, byte newPercent) { }
+
+		protected virtual void OnCachedConcentrationPercentChanged(byte oldPercent, byte newPercent) { }
+
+		public virtual void OnUsedConcentrationChanged() { }
+
+		protected void RefreshAllCachedResourcePercents()
+		{
+			// This method is only meant to be called by AddToWorld.
+
+			UpdateCachedHealthPercent(MaxHealth);
+			UpdateCachedManaPercent(MaxMana);
+			UpdateCachedEndurancePercent(MaxEndurance);
+
+			int maxConcentration = MaxConcentration;
+			UpdateCachedConcentrationPercent(maxConcentration, Math.Max(0, maxConcentration - effectListComponent.UsedConcentration));
+		}
+
+		public override byte HealthPercent => _cachedHealthPercent;
+
 		/// <summary>
 		/// Gets/sets the object health
 		/// </summary>
@@ -2682,12 +2786,16 @@ namespace DOL.GS
 				else
 					m_health = Math.Max(0, value);
 
-				if (IsAlive && m_health < maxHealth)
+				if (m_health < maxHealth)
 					StartHealthRegeneration();
+
+				UpdateCachedHealthPercent(maxHealth);
 			}
 		}
 
-		public override int MaxHealth => GetModified(eProperty.MaxHealth);
+		public virtual double MaxHealthScalingFactor => 1.0;
+
+		public override int MaxHealth => ResolveMaxHealthAndUpdateCache(GetModified(eProperty.MaxHealth));
 
 		public virtual int Mana
 		{
@@ -2697,7 +2805,7 @@ namespace DOL.GS
 				int maxMana = MaxMana;
 				m_mana = Math.Clamp(value, 0, maxMana);
 
-				if (IsAlive && (m_mana < maxMana || IsSpecialClass(this as GamePlayer)))
+				if (m_mana < maxMana || IsSpecialClass(this as GamePlayer))
 					StartPowerRegeneration();
 
 				static bool IsSpecialClass(GamePlayer player)
@@ -2708,11 +2816,13 @@ namespace DOL.GS
 					int classId = player.CharacterClass.ID;
 					return (eCharacterClass) classId is eCharacterClass.Vampiir || (classId > 59 && classId < 63);
 				}
+
+				UpdateCachedManaPercent(maxMana);
 			}
 		}
 
-		public virtual int MaxMana => GetModified(eProperty.MaxMana);
-		public virtual byte ManaPercent => (byte) (MaxMana <= 0 ? 0 : Math.Clamp(Mana * 100 / MaxMana, 0, 100));
+		public virtual int MaxMana => ResolveMaxManaAndUpdateCache(GetModified(eProperty.MaxMana));
+		public virtual byte ManaPercent => _cachedManaPercent;
 
 		public virtual int Endurance
 		{
@@ -2722,17 +2832,19 @@ namespace DOL.GS
 				int maxEndurance = MaxEndurance;
 				m_endurance = Math.Clamp(value, 0, maxEndurance);
 
-				if (IsAlive && m_endurance < maxEndurance)
+				if (m_endurance < maxEndurance)
 					StartEnduranceRegeneration();
+
+				UpdateCachedEndurancePercent(maxEndurance);
 			}
 		}
 
-		public virtual int MaxEndurance => GetModified(eProperty.Fatigue);
-		public virtual byte EndurancePercent => (byte) (MaxEndurance <= 0 ? 0 : Math.Clamp(Endurance * 100 / MaxEndurance, 0, 100));
+		public virtual int MaxEndurance => ResolveMaxEnduranceAndUpdateCache(GetModified(eProperty.Fatigue));
+		public virtual byte EndurancePercent => _cachedEndurancePercent;
 
 		public virtual int Concentration => 0;
-		public virtual int MaxConcentration => 0;
-		public virtual byte ConcentrationPercent => (byte) (MaxConcentration <= 0 ? 0 : Math.Clamp(Concentration * 100 / MaxConcentration, 0, 100));
+		public virtual int MaxConcentration => ResolveMaxConcentrationAndUpdateCache(GetModified(eProperty.MaxConcentration));
+		public virtual byte ConcentrationPercent => _cachedConcentrationPercent;
 
 		public void CancelAllConcentrationEffects()
 		{
@@ -2741,7 +2853,14 @@ namespace DOL.GS
 
 			// Cancel all active conc spell effects from other casters.
 			foreach (ECSGameSpellEffect effect in effectListComponent.GetSpellEffects().Where(e => e.IsConcentrationEffect()))
-				effect.Stop(false);
+				effect.End(false);
+		}
+
+		public override void Delete()
+		{
+			effectListComponent.CancelAll();
+			TempProperties.RemoveAllProperties();
+			base.Delete();
 		}
 
 		#endregion
@@ -2750,7 +2869,7 @@ namespace DOL.GS
 		/// <summary>
 		/// Holds the Living's Coordinate inside the current Region
 		/// </summary>
-		protected Point3D m_groundTarget;
+		public GroundTarget GroundTarget { get; } = new();
 
 		/// <summary>
 		/// Gets or sets the target of this living
@@ -2762,23 +2881,22 @@ namespace DOL.GS
 			get { return false; }
 			set { }
 		}
-		/// <summary>
-		/// Gets the Living's ground-target Coordinate inside the current Region
-		/// </summary>
-		public virtual Point3D GroundTarget
+
+		public void SetGroundTarget(int x, int y, int z)
 		{
-			get { return m_groundTarget; }
+			if (!CanSetGroundTarget())
+				return;
+
+			GroundTarget.Set(x, y, z);
+			OnGroundTargetSet();
 		}
 
-		/// <summary>
-		/// Sets the Living's ground-target Coordinates inside the current Region
-		/// </summary>
-		public virtual void SetGroundTarget(int groundX, int groundY, int groundZ)
+		protected virtual bool CanSetGroundTarget()
 		{
-			m_groundTarget.X = groundX;
-			m_groundTarget.Y = groundY;
-			m_groundTarget.Z = groundZ;
+			return true;
 		}
+
+		protected virtual void OnGroundTargetSet() { }
 
 		/// <summary>
 		/// Gets or Sets the current level of the Object
@@ -3412,7 +3530,7 @@ namespace DOL.GS
 		/// Table of skills currently disabled
 		/// skill => disabletimeout (ticks) or 0 when endless
 		/// </summary>
-		private readonly Dictionary<KeyValuePair<int, Type>, KeyValuePair<long, Skill>> m_disabledSkills = new Dictionary<KeyValuePair<int, Type>, KeyValuePair<long, Skill>>();
+		private readonly Dictionary<(int, Type), (long, Skill)> m_disabledSkills = new();
 		private readonly Lock _disabledSkillsLock = new();
 
 		/// <summary>
@@ -3424,24 +3542,22 @@ namespace DOL.GS
 		{
 			lock (_disabledSkillsLock)
 			{
-				KeyValuePair<int, Type> key = new(skill.ID, skill.GetType());
+				(int, Type) key = new(skill.ID, skill.GetType());
 
-				if (m_disabledSkills.TryGetValue(key, out KeyValuePair<long, Skill> value))
+				if (!m_disabledSkills.TryGetValue(key, out var value))
+					return 0;
+
+				long timeout = value.Item1;
+				long left = timeout - GameLoop.GameLoopTime;
+
+				if (left <= 0)
 				{
-					long timeout = value.Key;
-					long left = timeout - GameLoop.GameLoopTime;
-
-					if (left <= 0)
-					{
-						left = 0;
-						m_disabledSkills.Remove(key);
-					}
-
-					return (int) left;
+					left = 0;
+					m_disabledSkills.Remove(key);
 				}
-			}
 
-			return 0;
+				return (int) left;
+			}
 		}
 
 		/// <summary>
@@ -3452,11 +3568,12 @@ namespace DOL.GS
 		{
 			lock (_disabledSkillsLock)
 			{
-				List<Skill> skillList = new List<Skill>();
-				
-				foreach(KeyValuePair<long, Skill> disabled in m_disabledSkills.Values)
-					skillList.Add(disabled.Value);
-				
+				// Consider reusing the list to avoid allocations if this is called often.
+				List<Skill> skillList = new();
+
+				foreach (var disabled in m_disabledSkills.Values)
+					skillList.Add(disabled.Item2);
+
 				return skillList;
 			}
 		}
@@ -3470,10 +3587,10 @@ namespace DOL.GS
 		{
 			lock (_disabledSkillsLock)
 			{
-				KeyValuePair<int, Type> key = new(skill.ID, skill.GetType());
+				(int, Type) key = new(skill.ID, skill.GetType());
 
 				if (duration > 0)
-					m_disabledSkills[key] = new KeyValuePair<long, Skill>(GameLoop.GameLoopTime + duration, skill);
+					m_disabledSkills[key] = new(GameLoop.GameLoopTime + duration, skill);
 				else
 					m_disabledSkills.Remove(key);
 			}
@@ -3484,19 +3601,21 @@ namespace DOL.GS
 		/// </summary>
 		/// <param name="skill">the skill to disable</param>
 		/// <param name="duration">duration of disable in milliseconds</param>
-		public virtual void DisableSkills(ICollection<Tuple<Skill, int>> skills)
+		public virtual void DisableSkills(List<(Skill, int)> skills)
 		{
+			if (skills.Count == 0)
+				return;
+
 			lock (_disabledSkillsLock)
 			{
-				foreach (Tuple<Skill, int> tuple in skills)
+				foreach ((Skill, int) tuple in skills)
 				{
 					Skill skill = tuple.Item1;
 					int duration = tuple.Item2;
-					
-					KeyValuePair<int, Type> key = new(skill.ID, skill.GetType());
+					(int, Type) key = new(skill.ID, skill.GetType());
 
 					if (duration > 0)
-						m_disabledSkills[key] = new KeyValuePair<long, Skill>(GameLoop.GameLoopTime + duration, skill);
+						m_disabledSkills[key] = new(GameLoop.GameLoopTime + duration, skill);
 					else
 						m_disabledSkills.Remove(key);
 				}
@@ -3560,12 +3679,6 @@ namespace DOL.GS
 			StopHealthRegeneration();
 			StopPowerRegeneration();
 			StopEnduranceRegeneration();
-			m_healthRegenerationTimer?.Stop();
-			m_powerRegenerationTimer?.Stop();
-			m_enduRegenerationTimer?.Stop();
-			m_healthRegenerationTimer = null;
-			m_powerRegenerationTimer = null;
-			m_enduRegenerationTimer = null;
 			TargetObject = null;
 			return true;
 		}
@@ -3634,16 +3747,9 @@ namespace DOL.GS
 			castingComponent.InterruptCasting(IsMoving);
 		}
 
-		public virtual bool CastSpell(Spell spell, SpellLine line, ISpellCastingAbilityHandler spellCastingAbilityHandler = null)
+		public virtual bool CastSpell(Spell spell, SpellLine line, ISpellCastingAbilityHandler spellCastingAbilityHandler = null, bool checkLos = true)
 		{
-			return castingComponent.RequestCastSpell(spell, line, spellCastingAbilityHandler, TargetObject as GameLiving);
-		}
-
-		// Should only be used when the target of the spell is different than the currently selected one.
-		// Which can happen during LoS checks, since we're not waiting for the check to complete to perform other actions.
-		protected bool CastSpell(Spell spell, SpellLine line, GameLiving target, ISpellCastingAbilityHandler spellCastingAbilityHandle = null)
-		{
-			return castingComponent.RequestCastSpell(spell, line, spellCastingAbilityHandle, target);
+			return castingComponent.RequestCastSpell(spell, line, spellCastingAbilityHandler, TargetObject as GameLiving, checkLos);
 		}
 
 		public virtual bool CastSpell(ISpellCastingAbilityHandler ab)
@@ -3824,6 +3930,15 @@ namespace DOL.GS
 		}
 		#endregion
 
+		public override bool AddToWorld()
+		{
+			if (!base.AddToWorld())
+				return false;
+
+			RefreshAllCachedResourcePercents();
+			return true;
+		}
+
 		/// <summary>
 		/// Constructor to create a new GameLiving
 		/// </summary>
@@ -3837,7 +3952,6 @@ namespace DOL.GS
 			movementComponent = MovementComponent.Create(this);
 
 			m_guildName = string.Empty;
-			m_groundTarget = new Point3D(0, 0, 0);
 
 			//Set all combat properties
 			m_activeWeaponSlot = eActiveWeaponSlot.Standard;
@@ -3849,6 +3963,10 @@ namespace DOL.GS
 			m_health = 1;
 			m_mana = 1;
 			m_endurance = 1;
+
+			m_healthRegenerationTimer = new(this, HealthRegenerationTimerCallback);
+			m_powerRegenerationTimer = new(this, PowerRegenerationTimerCallback);
+			m_enduRegenerationTimer = new(this, EnduranceRegenerationTimerCallback);
 		}
 	}
 }

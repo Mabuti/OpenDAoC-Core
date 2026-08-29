@@ -95,14 +95,14 @@ namespace DOL.AI.Brain
 			AggroRange = 600;
 			ThinkInterval = 1500;
 		}
-		public static GamePlayer randomtarget = null;
-		public static GamePlayer RandomTarget
+		public GamePlayer randomtarget = null;
+		public GamePlayer RandomTarget
 		{
 			get { return randomtarget; }
 			set { randomtarget = value; }
 		}
-		public static bool IsPulled = false;
-		public static bool CanCast = false;
+		public bool IsPulled = false;
+		public bool CanCast = false;
 		List<GamePlayer> Enemys_To_DD = new List<GamePlayer>();
 		public void PickRandomTarget()
 		{
@@ -122,7 +122,7 @@ namespace DOL.AI.Brain
 				if (CanCast == false)
 				{
 					GamePlayer Target = Enemys_To_DD[Util.Random(0, Enemys_To_DD.Count - 1)];//pick random target from list
-					RandomTarget = Target;//set random target to static RandomTarget
+					RandomTarget = Target;
 					new ECSGameTimer(Body, new ECSGameTimer.ECSTimerCallback(ResetTarget), 4500);
 					CanCast = true;
 				}
@@ -239,11 +239,10 @@ namespace DOL.AI.Brain
 					spell.Range = 1500;
 					spell.Radius = 250;
 					spell.SpellID = 11892;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.DirectDamageNoVariance.ToString();
 					spell.Uninterruptible = true;
 					m_Morgus_DD = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Morgus_DD);
 				}
 				return m_Morgus_DD;
 			}
@@ -267,11 +266,10 @@ namespace DOL.AI.Brain
 					spell.Name = "Lava's Fury";
 					spell.Range = 1800;
 					spell.SpellID = 11893;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.Bolt.ToString();
 					spell.Uninterruptible = true;
 					m_Morgus_Bolt = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Morgus_Bolt);
 				}
 				return m_Morgus_Bolt;
 			}
@@ -295,11 +293,10 @@ namespace DOL.AI.Brain
 					spell.Name = "Lava's Fury";
 					spell.Range = 1800;
 					spell.SpellID = 11894;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.Bolt.ToString();
 					spell.Uninterruptible = true;
 					m_Morgus_Bolt2 = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Morgus_Bolt2);
 				}
 				return m_Morgus_Bolt2;
 			}

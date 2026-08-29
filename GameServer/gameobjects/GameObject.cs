@@ -182,52 +182,12 @@ namespace DOL.GS
 		/// <summary>
 		/// Checks if object is underwater
 		/// </summary>
-		public virtual bool IsUnderwater
-		{
-			get
-			{
-				if (CurrentRegion == null || CurrentZone == null)
-					return false;
-				// Special land areas below the waterlevel in NF
-				if (CurrentRegion.ID == 163)
-				{
-					// Mount Collory
-					if ((Y > 664000) && (Y < 670000) && (X > 479000) && (X < 488000)) return false;
-					if ((Y > 656000) && (Y < 664000) && (X > 472000) && (X < 488000)) return false;
-					if ((Y > 624000) && (Y < 654000) && (X > 468500) && (X < 488000)) return false;
-					if ((Y > 659000) && (Y < 683000) && (X > 431000) && (X < 466000)) return false;
-					if ((Y > 646000) && (Y < 659001) && (X > 431000) && (X < 460000)) return false;
-					if ((Y > 624000) && (Y < 646001) && (X > 431000) && (X < 455000)) return false;
-					if ((Y > 671000) && (Y < 683000) && (X > 431000) && (X < 471000)) return false;
-					// Breifine
-					if ((Y > 558000) && (Y < 618000) && (X > 456000) && (X < 479000)) return false;
-					// Cruachan Gorge
-					if ((Y > 586000) && (Y < 618000) && (X > 360000) && (X < 424000)) return false;
-					if ((Y > 563000) && (Y < 578000) && (X > 360000) && (X < 424000)) return false;
-					// Emain Macha
-					if ((Y > 505000) && (Y < 555000) && (X > 428000) && (X < 444000)) return false;
-					// Hadrian's Wall
-					if ((Y > 500000) && (Y < 553000) && (X > 603000) && (X < 620000)) return false;
-					// Snowdonia
-					if ((Y > 633000) && (Y < 678000) && (X > 592000) && (X < 617000)) return false;
-					if ((Y > 662000) && (Y < 678000) && (X > 581000) && (X < 617000)) return false;
-					// Sauvage Forrest
-					if ((Y > 584000) && (Y < 615000) && (X > 626000) && (X < 681000)) return false;
-					// Uppland
-					if ((Y > 297000) && (Y < 353000) && (X > 610000) && (X < 652000)) return false;
-					// Yggdra
-					if ((Y > 408000) && (Y < 421000) && (X > 671000) && (X < 693000)) return false;
-					if ((Y > 364000) && (Y < 394000) && (X > 674000) && (X < 716000)) return false;
-				}
-
-				return Z < CurrentZone.Waterlevel;
-			}
-		}
+		public virtual bool IsUnderwater => CurrentZone?.IsUnderwater(X, Y, Z) == true;
 
 		/// <summary>
 		/// Holds all areas this object is currently within
 		/// </summary>
-		public virtual IList<IArea> CurrentAreas
+		public virtual List<IArea> CurrentAreas
 		{
 			get => CurrentZone.GetAreasOfSpot(this);
 			set { }
@@ -261,15 +221,11 @@ namespace DOL.GS
 		/// <returns></returns>
 		public virtual bool IsVisibleTo(GameObject checkObject)
 		{
-			if (checkObject == null ||
-				CurrentRegion != checkObject.CurrentRegion ||
-				InHouse != checkObject.InHouse ||
-				(InHouse && checkObject.InHouse && CurrentHouse != checkObject.CurrentHouse))
-			{
-				return false;
-			}
-
-			return true;
+			return checkObject != null &&
+				CurrentRegion == checkObject.CurrentRegion &&
+				InHouse == checkObject.InHouse &&
+				(!InHouse || !checkObject.InHouse || CurrentHouse == checkObject.CurrentHouse) &&
+				ObjectState is eObjectState.Active;
 		}
 
 		#endregion
@@ -391,7 +347,15 @@ namespace DOL.GS
             set => m_maxHealth = value;
         }
 
-        public virtual byte HealthPercent => (byte) (MaxHealth <= 0 ? 0 : Math.Clamp(Health * 100 / MaxHealth, 0, 100));
+        public virtual byte HealthPercent
+        {
+            get
+            {
+                int maxHealth = MaxHealth;
+                return (byte) (maxHealth <= 0 ? 0 : Math.Clamp(Health * 100 / maxHealth, 0, 100));
+            }
+        }
+
         public virtual byte HealthPercentGroupWindow => HealthPercent;
 
         public virtual string GetName(int article, bool firstLetterUppercase, string lang, ITranslatableObject obj)
@@ -476,7 +440,7 @@ namespace DOL.GS
             string result = string.Empty;
             if (text == null || text.Length <= 0) return result;
             result = text[0].ToString().ToUpper();
-            if (text.Length > 1) result += text.Substring(1, text.Length - 1);
+            if (text.Length > 1) result += text.Substring(1);
             return result;
         }
 
@@ -677,8 +641,10 @@ namespace DOL.GS
 			foreach (GamePlayer player in GetPlayersInRadius(WorldMgr.VISIBILITY_DISTANCE))
 				player.Out.SendObjectRemove(this);
 
+			if (CurrentZone != null)
+				SubZoneObject?.InitiateSubZoneTransition(null, null);
+
 			CurrentRegion.RemoveObject(this);
-			ClearObjectsInRadiusCache();
 			return true;
 		}
 
@@ -736,7 +702,6 @@ namespace DOL.GS
 			Notify(GameObjectEvent.Delete, this);
 			RemoveFromWorld();
 			ObjectState = eObjectState.Deleted;
-			ClearObjectsInRadiusCache();
 			GameEventMgr.RemoveAllHandlersForObject(this);
 		}
 
@@ -926,12 +891,12 @@ namespace DOL.GS
 
 		public int GetConLevel(GameObject compare)
 		{
-			return ConLevels.GetConLevel(EffectiveLevel, compare.EffectiveLevel);
+			return CharacterConLevelGrid.GetConLevel(EffectiveLevel, compare.EffectiveLevel);
 		}
 
 		public static int GetConLevel(int level, int compareLevel)
 		{
-			return ConLevels.GetConLevel(level, compareLevel);
+			return CharacterConLevelGrid.GetConLevel(level, compareLevel);
 		}
 
 		#endregion
@@ -962,67 +927,15 @@ namespace DOL.GS
 
 		#region ObjectsInRadius
 
-		private readonly Lock _objectInRadiusCachesLock = new();
-		private readonly Dictionary<eGameObjectType, ObjectsInRadiusCache> _objectsInRadiusCaches = new();
-
-		public void ClearObjectsInRadiusCache()
-		{
-			lock (_objectInRadiusCachesLock)
-			{
-				_objectsInRadiusCaches.Clear();
-			}
-		}
-
 		public List<T> GetObjectsInRadius<T>(eGameObjectType objectType, ushort radiusToCheck) where T : GameObject, IPooledList<T>
 		{
+			List<T> result = GameLoop.GetListForTick<T>();
+
 			if (CurrentRegion == null)
-				return new(); // Should never happen.
-
-			lock (_objectInRadiusCachesLock)
-			{
-				if (!_objectsInRadiusCaches.TryGetValue(objectType, out ObjectsInRadiusCache cache))
-				{
-					cache = new(new List<T>(), 0, 0);
-					_objectsInRadiusCaches[objectType] = cache;
-				}
-
-				if (cache.ExpireTime >= GameLoop.GameLoopTime)
-				{
-					// If the radius being checked is smaller than the cached radius, build a filtered list.
-					if (cache.Radius > radiusToCheck)
-					{
-						List<T> filtered = GameLoop.GetListForTick<T>();
-
-						// While this saves a call to `CurrentRegion.GetInRadius<T>`, it could still be a bit slow.
-						// The alternative would be to sort the cached list by distance and use binary search to find the first object within the radius.
-						// But whether that would be faster or not is debatable, and would depend on how often the cache is hit with a smaller radius.
-						for (int i = 0; i < cache.List.Count; i++)
-						{
-							T obj = (T) cache.List[i];
-
-							if (IsWithinRadius(obj, radiusToCheck))
-								filtered.Add(obj);
-						}
-
-						return filtered;
-					}
-					else if (cache.Radius == radiusToCheck)
-					{
-						List<T> copy = GameLoop.GetListForTick<T>();
-						copy.AddRange((List<T>) cache.List);
-						return copy;
-					}
-				}
-
-				// If the cache is no longer valid or if the radius being checked is bigger than the cached radius, refresh the cache.
-				List<T> cachedList = (List<T>) cache.List;
-				cachedList.Clear();
-				CurrentRegion.GetInRadius(this, objectType, radiusToCheck, cachedList);
-				cache.Set(cachedList, radiusToCheck, GameLoop.GameLoopTime + 500);
-				List<T> result = GameLoop.GetListForTick<T>();
-				result.AddRange(cachedList);
 				return result;
-			}
+
+			CurrentRegion.GetInRadius(this, objectType, radiusToCheck, result);
+			return result;
 		}
 
 		public List<GamePlayer> GetPlayersInRadius(ushort radiusToCheck)
@@ -1043,25 +956,6 @@ namespace DOL.GS
 		public List<GameDoorBase> GetDoorsInRadius(ushort radiusToCheck)
 		{
 			return GetObjectsInRadius<GameDoorBase>(eGameObjectType.DOOR, radiusToCheck);
-		}
-
-		private class ObjectsInRadiusCache
-		{
-			public IList List { get; set; }
-			public ushort Radius { get; set; }
-			public long ExpireTime { get; set; }
-
-			public ObjectsInRadiusCache(IList list, ushort radius, long expireTime)
-			{
-				Set(list, radius, expireTime);
-			}
-
-			public void Set(IList list, ushort radius, long expireTime)
-			{
-				List = list;
-				Radius = radius;
-				ExpireTime = expireTime;
-			}
 		}
 
 		#endregion
@@ -1220,5 +1114,7 @@ namespace DOL.GS
 		}
 
 		public virtual void OnUpdateOrCreateForPlayer() { }
+
+		public virtual IRandomProvider RandomProvider => RandomProviderFactory.GetDefaultRandomProvider();
 	}
 }

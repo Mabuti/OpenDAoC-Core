@@ -15,6 +15,32 @@ namespace DOL.GS
                 action(items[i]);
         }
 
+        public override void ExecuteForEachSharded<T>(List<T>[] shards, int[] shardStartIndices, int totalCount, Action<T> action)
+        {
+            CheckResetTick();
+
+            if (totalCount <= 0)
+                return;
+
+            for (int i = 0; i < shards.Length; i++)
+            {
+                int shardValidCount;
+
+                if (i < shards.Length - 1)
+                    shardValidCount = shardStartIndices[i + 1] - shardStartIndices[i];
+                else
+                    shardValidCount = totalCount - shardStartIndices[i];
+
+                if (shardValidCount <= 0)
+                    continue;
+
+                List<T> currentShard = shards[i];
+
+                for (int j = 0; j < shardValidCount; j++)
+                    action(currentShard[j]);
+            }
+        }
+
         public override void Dispose() { }
     }
 }

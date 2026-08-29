@@ -1,4 +1,5 @@
-﻿using DOL.AI.Brain;
+﻿using System.Collections.Generic;
+using DOL.AI.Brain;
 using DOL.Database;
 using DOL.GS;
 using DOL.GS.PacketHandler;
@@ -85,18 +86,19 @@ namespace DOL.GS
 			base.AddToWorld();
 			return true;
 		}
-        public override void Die(GameObject killer)
+        public override void ProcessDeath(GameObject killer)
         {
 			foreach(GameNPC npc in GetNPCsInRadius(8000))
             {
 				if (npc != null && npc.IsAlive && npc.Brain is LokenWolfBrain)
 					npc.Die(this);
             }
-            base.Die(killer);
+            base.ProcessDeath(killer);
         }
         private void SpawnWolfs()
 		{
 			Point3D spawn = new Point3D(636780, 762427, 4597);
+			Wolves.RemoveAll(npc => npc == null || !npc.IsAlive || npc.ObjectState is not eObjectState.Active);
 			for (int i = 0; i < 2; i++)
 			{
 				LokenWolf npc = new LokenWolf();
@@ -106,8 +108,10 @@ namespace DOL.GS
 				npc.Heading = Heading;
 				npc.CurrentRegion = CurrentRegion;
 				npc.AddToWorld();
+				Wolves.Add(npc);
 			}
 		}
+		public readonly List<GameNPC> Wolves = new List<GameNPC>();
 	}
 }
 namespace DOL.AI.Brain
@@ -137,7 +141,7 @@ namespace DOL.AI.Brain
 				Body.Health = Body.MaxHealth;
 				INpcTemplate npcTemplate = NpcTemplateMgr.GetTemplate(60163372);
 				Body.MaxSpeedBase = npcTemplate.MaxSpeed;
-				if (LokenWolf.WolfsCount < 2 && !SpawnWolf)
+				if (!SpawnWolf && AliveWolfCount() < 2)
                 {
 					SpawnWolfs();
 					SpawnWolf = true;
@@ -175,12 +179,30 @@ namespace DOL.AI.Brain
 			}
 			base.Think();
 		}
+		private int AliveWolfCount()
+		{
+			if (Body is not Loken loken)
+				return 0;
+
+			int count = 0;
+			foreach (GameNPC npc in loken.Wolves)
+			{
+				if (npc != null && npc.IsAlive && npc.ObjectState is GameObject.eObjectState.Active)
+					++count;
+			}
+			return count;
+		}
 		private void SpawnWolfs()
 		{
+			if (Body is not Loken loken)
+				return;
+
 			Point3D spawn = new Point3D(636780, 762427, 4597);
+			loken.Wolves.RemoveAll(npc => npc == null || !npc.IsAlive || npc.ObjectState is not GameObject.eObjectState.Active);
+			int wolfsCount = loken.Wolves.Count;
 			for (int i = 0; i < 2; i++)
 			{
-				if (LokenWolf.WolfsCount < 2)
+				if (wolfsCount < 2)
 				{
 					LokenWolf npc = new LokenWolf();
 					npc.X = spawn.X + Util.Random(-100, 100);
@@ -189,6 +211,8 @@ namespace DOL.AI.Brain
 					npc.Heading = Body.Heading;
 					npc.CurrentRegion = Body.CurrentRegion;
 					npc.AddToWorld();
+					loken.Wolves.Add(npc);
+					++wolfsCount;
 				}
 			}
 		}
@@ -215,10 +239,9 @@ namespace DOL.AI.Brain
 					spell.Name = "Searing Blast";
 					spell.Range = 1500;
 					spell.SpellID = 12001;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.DirectDamageWithDebuff.ToString();
 					m_LokenDD = new Spell(spell, 60);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_LokenDD);
 				}
 				return m_LokenDD;
 			}
@@ -245,12 +268,11 @@ namespace DOL.AI.Brain
 					spell.Name = "Searing Blast";
 					spell.Range = 1500;
 					spell.SpellID = 12002;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Uninterruptible = true;
 					spell.MoveCast = true;
 					spell.Type = eSpellType.DirectDamageWithDebuff.ToString();
 					m_LokenDD2 = new Spell(spell, 60);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_LokenDD2);
 				}
 				return m_LokenDD2;
 			}
@@ -273,11 +295,10 @@ namespace DOL.AI.Brain
 					spell.Name = "Flame Spear";
 					spell.Range = 1800;
 					spell.SpellID = 12003;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.Bolt.ToString();
 					m_LokenBolt = new Spell(spell, 60);
 					spell.Uninterruptible = true;
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_LokenBolt);
 				}
 				return m_LokenBolt;
 			}
@@ -306,19 +327,12 @@ namespace DOL.GS
 			Size = 45;
 			LokenWolfBrain sbrain = new LokenWolfBrain();
 			SetOwnBrain(sbrain);
-			++WolfsCount;
 			MaxSpeedBase = 225;
 			LoadedFromScript = true;
 			RespawnInterval = -1;
 			base.AddToWorld();
 			return true;
 		}
-		public static int WolfsCount = 0;
-        public override void Die(GameObject killer)
-        {
-			--WolfsCount;
-            base.Die(killer);
-        }
     }
 }
 namespace DOL.AI.Brain

@@ -7,7 +7,7 @@ namespace DOL.GS
     {
         private GamePlayer _owner;
 
-        private readonly Dictionary<int, ECSGameEffect> _effectIdToEffect = new();   // Dictionary of effects by their icon ID.
+        private readonly Dictionary<int, ECSGameEffect> _tooltipIdToEffect = new();  // Dictionary of effects by their tooltip ID.
         private EffectHelper.PlayerUpdate _requestedPlayerUpdates;                   // Player updates requested by the effects, to be sent in the next tick.
         private int _lastUpdateEffectsCount;                                         // Number of effects sent in the last player update, used externally.
         private readonly Lock _playerUpdatesLock = new();
@@ -17,9 +17,9 @@ namespace DOL.GS
             _owner = owner;
         }
 
-        public override void Tick()
+        public override void BeginTick()
         {
-            base.Tick();
+            base.BeginTick();
             SendPlayerUpdates();
         }
 
@@ -32,28 +32,28 @@ namespace DOL.GS
             }
         }
 
-        public override ECSGameEffect TryGetEffectFromEffectId(int effectId)
+        public override ECSGameEffect TryGetEffectByTooltipId(int tooltipId)
         {
             ECSGameEffect effect;
 
             lock (_effectsLock)
             {
-                _effectIdToEffect.TryGetValue(effectId, out effect);
+                _tooltipIdToEffect.TryGetValue(tooltipId, out effect);
             }
 
             return effect;
         }
 
-        protected override void SetEffectIdToEffect(ECSGameEffect effect)
+        protected override void MapTooltipIdToEffect(ECSGameEffect effect)
         {
             // `_effectsLock` is expected to be acquired already.
-            _effectIdToEffect[effect.Icon] = effect;
+            _tooltipIdToEffect[effect.TooltipId] = effect;
         }
 
-        protected override void RemoveEffectIdToEffect(ECSGameEffect effect)
+        protected override void UnmapTooltipIdToEffect(ECSGameEffect effect)
         {
             // `_effectsLock` is expected to be acquired already.
-            _effectIdToEffect.Remove(effect.Icon);
+            _tooltipIdToEffect.Remove(effect.TooltipId);
         }
 
         private void SendPlayerUpdates()
@@ -74,12 +74,9 @@ namespace DOL.GS
 
             if ((requestedUpdates & EffectHelper.PlayerUpdate.Icons) != 0)
             {
-                _owner.Group?.UpdateMember(_owner, true, false);
-                _owner.Out.SendUpdateIcons(GetEffects(), ref _lastUpdateEffectsCount);
+                _owner.Group?.UpdateMemberIcons(_owner, false);
+                _owner.Out.SendUpdateIcons(ref _lastUpdateEffectsCount);
             }
-
-            if ((requestedUpdates & EffectHelper.PlayerUpdate.Status) != 0)
-                _owner.Out.SendStatusUpdate();
 
             if ((requestedUpdates & EffectHelper.PlayerUpdate.Stats) != 0)
                 _owner.Out.SendCharStatsUpdate();
@@ -90,7 +87,7 @@ namespace DOL.GS
             if ((requestedUpdates & EffectHelper.PlayerUpdate.WeaponArmor) != 0)
                 _owner.Out.SendUpdateWeaponAndArmorStats();
 
-            if ((requestedUpdates & EffectHelper.PlayerUpdate.Encumberance) != 0)
+            if ((requestedUpdates & EffectHelper.PlayerUpdate.Encumbrance) != 0)
                 _owner.UpdateEncumbrance();
 
             if ((requestedUpdates & EffectHelper.PlayerUpdate.Concentration) != 0)

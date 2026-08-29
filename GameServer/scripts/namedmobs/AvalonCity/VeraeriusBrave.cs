@@ -100,7 +100,7 @@ namespace DOL.AI.Brain
 			AggroRange = 600;
 			ThinkInterval = 1500;
 		}
-		public static bool IsPulled = false;
+		public bool IsPulled = false;
 		public override void Think()
 		{
 			if (!CheckProximityAggro())
@@ -151,11 +151,10 @@ namespace DOL.AI.Brain
 					spell.Name = "Vera'erius Heal";
 					spell.Range = 1500;
 					spell.SpellID = 11796;
-					spell.Target = "Self";
+					spell.Target = eSpellTarget.SELF.ToString();
 					spell.Type = eSpellType.Heal.ToString();
 					spell.Uninterruptible = true;
 					m_VeraeriusHeal = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_VeraeriusHeal);
 				}
 				return m_VeraeriusHeal;
 			}

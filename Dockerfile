@@ -1,5 +1,6 @@
 # ---- build ----
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+# Use the official .NET 10.0 SDK image as the build environment
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 LABEL stage=build
 
 WORKDIR /build
@@ -28,7 +29,8 @@ RUN cp /build/CoreServer/config/serverconfig.example.xml /build/CoreServer/confi
 RUN dotnet build DOLLinux.sln -c Release
 
 # ---- final ----
-FROM mcr.microsoft.com/dotnet/aspnet:9.0-alpine AS final
+# Use the official .NET 10.0 Alpine Runtime image as the base for the final image
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS final
 LABEL stage=final
 
 # Runtime deps:

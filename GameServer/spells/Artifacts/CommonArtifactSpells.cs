@@ -1,4 +1,3 @@
-using DOL.AI.Brain;
 using DOL.GS.Effects;
 
 namespace DOL.GS.Spells
@@ -26,16 +25,15 @@ namespace DOL.GS.Spells
             effect.Owner.DebuffCategory[eProperty.Quickness] += (int)m_spell.Value;
             effect.Owner.DebuffCategory[eProperty.Intelligence] += (int)m_spell.Value;
             effect.Owner.DebuffCategory[eProperty.Charisma] += (int)m_spell.Value;   
-            effect.Owner.DebuffCategory[eProperty.ArmorAbsorption] += (int)m_spell.Value; 
+            effect.Owner.DebuffCategory[eProperty.PhysicalAbsorption] += (int)m_spell.Value; 
             effect.Owner.DebuffCategory[eProperty.MagicAbsorption] += (int)m_spell.Value; 
             
             if(effect.Owner is GamePlayer)
             {
-            	GamePlayer player = effect.Owner as GamePlayer;  
+            	GamePlayer player = effect.Owner as GamePlayer;
                 player.Out.SendCharStatsUpdate();
                 player.UpdateEncumbrance();
-                player.UpdatePlayerStatus();
-            	player.Out.SendUpdatePlayer();             	
+            	player.Out.SendUpdatePlayer();
             }
         }
         public override int OnEffectExpires(GameSpellEffect effect, bool noMessages)
@@ -49,17 +47,16 @@ namespace DOL.GS.Spells
             effect.Owner.DebuffCategory[eProperty.Quickness] -= (int)m_spell.Value;
             effect.Owner.DebuffCategory[eProperty.Intelligence] -= (int)m_spell.Value;
             effect.Owner.DebuffCategory[eProperty.Charisma] -= (int)m_spell.Value;        
-            effect.Owner.DebuffCategory[eProperty.ArmorAbsorption] -= (int)m_spell.Value; 
+            effect.Owner.DebuffCategory[eProperty.PhysicalAbsorption] -= (int)m_spell.Value; 
             effect.Owner.DebuffCategory[eProperty.MagicAbsorption] -= (int)m_spell.Value; 
  
             if(effect.Owner is GamePlayer)
             {
-            	GamePlayer player = effect.Owner as GamePlayer;    
+                GamePlayer player = effect.Owner as GamePlayer;
                 player.Out.SendCharStatsUpdate();
                 player.UpdateEncumbrance();
-                player.UpdatePlayerStatus();
-            	player.Out.SendUpdatePlayer();  
-            }                       
+                player.Out.SendUpdatePlayer();
+            }
             return base.OnEffectExpires(effect, noMessages);
         }
 
@@ -76,12 +73,6 @@ namespace DOL.GS.Spells
 				target.LastAttackedByEnemyTickPvP = GameLoop.GameLoopTime;
                 Caster.LastAttackTickPvP = GameLoop.GameLoopTime;
             }
-			if(target is GameNPC) 
-			{
-				IOldAggressiveBrain aggroBrain = ((GameNPC)target).Brain as IOldAggressiveBrain;
-				if (aggroBrain != null)
-					aggroBrain.AddToAggroList(Caster, (int)Spell.Value);
-			}
 		}		
         public AllStatsDebuff(GameLiving caster, Spell spell, SpellLine line) : base(caster, spell, line) { }
     }
@@ -106,13 +97,12 @@ namespace DOL.GS.Spells
             effect.Owner.DebuffCategory[eProperty.Resist_Matter] += (int)Spell.Value;
             effect.Owner.DebuffCategory[eProperty.Resist_Spirit] += (int)Spell.Value;
             effect.Owner.DebuffCategory[eProperty.Resist_Energy] += (int)Spell.Value;
-            
+
             if(effect.Owner is GamePlayer)
             {
-            	GamePlayer player = effect.Owner as GamePlayer;
-             	player.Out.SendCharResistsUpdate(); 
-             	player.UpdatePlayerStatus();
-            }                       
+                GamePlayer player = effect.Owner as GamePlayer;
+                 player.Out.SendCharResistsUpdate(); 
+            }
         }
         public override int OnEffectExpires(GameSpellEffect effect, bool noMessages)
         {
@@ -125,11 +115,10 @@ namespace DOL.GS.Spells
             
             if(effect.Owner is GamePlayer)
             {
-            	GamePlayer player = effect.Owner as GamePlayer;
-             	player.Out.SendCharResistsUpdate(); 
-             	player.UpdatePlayerStatus();
-            }           
-            
+                GamePlayer player = effect.Owner as GamePlayer;
+                player.Out.SendCharResistsUpdate();
+            }
+
             return base.OnEffectExpires(effect, noMessages);
         }
 
@@ -146,12 +135,6 @@ namespace DOL.GS.Spells
 				target.LastAttackedByEnemyTickPvP = GameLoop.GameLoopTime;
                 Caster.LastAttackTickPvP = GameLoop.GameLoopTime;
             }
-			if(target is GameNPC) 
-			{
-				IOldAggressiveBrain aggroBrain = ((GameNPC)target).Brain as IOldAggressiveBrain;
-				if (aggroBrain != null)
-					aggroBrain.AddToAggroList(Caster, (int)Spell.Value);
-			}
 		}	
         public LoreDebuff(GameLiving caster, Spell spell, SpellLine line) : base(caster, spell, line) { }
     }
@@ -175,11 +158,10 @@ namespace DOL.GS.Spells
  
             if(Caster is GamePlayer)
             {
-            	GamePlayer player = Caster as GamePlayer;          	
-             	player.Out.SendCharStatsUpdate(); 
-             	player.UpdateEncumbrance();
-             	player.UpdatePlayerStatus();
-            } 
+                GamePlayer player = Caster as GamePlayer;
+                 player.Out.SendCharStatsUpdate(); 
+                 player.UpdateEncumbrance();
+            }
         }
 
         public override int OnEffectExpires(GameSpellEffect effect, bool noMessages)
@@ -189,11 +171,10 @@ namespace DOL.GS.Spells
  
             if(Caster is GamePlayer)
             {
-            	GamePlayer player = Caster as GamePlayer;          	
-             	player.Out.SendCharStatsUpdate(); 
-             	player.UpdateEncumbrance();
-             	player.UpdatePlayerStatus();
-            } 
+                GamePlayer player = Caster as GamePlayer;
+                 player.Out.SendCharStatsUpdate(); 
+                 player.UpdateEncumbrance();
+            }
             return base.OnEffectExpires(effect,noMessages);
         } 
         

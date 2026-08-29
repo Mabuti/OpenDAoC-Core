@@ -124,7 +124,7 @@ namespace DOL.GS.Spells
 					MessageToCaster("You cannot cast this on the dead!", eChatType.CT_SpellResisted);
 					return false;
 				}
-				if (caster.IsMezzed || caster.IsStunned || caster.IsSilenced)
+				if (caster.IsCrowdControlled || caster.IsSilenced)
 				{
 					MessageToCaster("You can't use that in your state.", eChatType.CT_System);
 					return false;
@@ -167,7 +167,7 @@ namespace DOL.GS.Spells
 					if (EffectOwner == Target)
 					{
 						if (m_caster is GamePlayer)
-							((GamePlayer)m_caster).Out.SendMessage(string.Format("{0} is invisible to you!", Target.GetName(0, true)), eChatType.CT_Missed, eChatLoc.CL_SystemWindow);
+							((GamePlayer)m_caster).Out.SendMessage(string.Format("{0} is invisible to you!", Target.GetName(0, true)), eChatType.CT_Action, eChatLoc.CL_SystemWindow);
 
 						return false;
 					}

@@ -96,14 +96,14 @@ namespace DOL.GS
 			base.AddToWorld();
 			return true;
 		}
-        public override void Die(GameObject killer)
+        public override void ProcessDeath(GameObject killer)
         {
 			foreach (GameNPC npc in GetNPCsInRadius(8000))
 			{
 				if (npc != null && npc.IsAlive && npc.Brain is TorchOfLightBrain)
 					npc.RemoveFromWorld();
 			}
-			base.Die(killer);
+			base.ProcessDeath(killer);
         }
     }
 }
@@ -214,10 +214,9 @@ namespace DOL.AI.Brain
 					spell.Name = "Flame Spear";
 					spell.Range = 1800;
 					spell.SpellID = 11983;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.Bolt.ToString();
 					m_CailleachUragaigDD = new Spell(spell, 60);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_CailleachUragaigDD);
 				}
 				return m_CailleachUragaigDD;
 			}
@@ -240,12 +239,11 @@ namespace DOL.AI.Brain
 					spell.Name = "Flame Spear";
 					spell.Range = 1800;
 					spell.SpellID = 11983;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Uninterruptible = true;
 					spell.MoveCast = true;
 					spell.Type = eSpellType.Bolt.ToString();
 					m_CailleachUragaigDD2 = new Spell(spell, 60);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_CailleachUragaigDD2);
 				}
 				return m_CailleachUragaigDD2;
 			}
@@ -364,12 +362,11 @@ namespace DOL.AI.Brain
 					spell.Name = "Flame Spear";
 					spell.Range = 4000;
 					spell.SpellID = 11895;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Uninterruptible = true;
 					spell.MoveCast = true;
 					spell.Type = eSpellType.Bolt.ToString();
 					m_Torch_Of_Light_Bolt = new Spell(spell, 60);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Torch_Of_Light_Bolt);
 				}
 				return m_Torch_Of_Light_Bolt;
 			}

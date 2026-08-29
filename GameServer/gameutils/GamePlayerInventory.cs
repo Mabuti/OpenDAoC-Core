@@ -91,6 +91,7 @@ namespace DOL.GS
 
                             // Since the `DbInventoryItem` has just been loaded and we had to recreate one because of poo poo design, we need to take a new snapshot.
                             // The snapshot is used to ensure we're not saving every column on the next save.
+                            playerItem.Dirty = false;
                             playerItem.TakeSnapshot();
 
                             if (!playerItem.CheckValid(m_player))
@@ -110,7 +111,7 @@ namespace DOL.GS
                         }
                     }
 
-                    foreach (eInventorySlot slot in EQUIP_SLOTS)
+                    foreach (eInventorySlot slot in EquipmentSlots)
                     {
                         if (slot is >= eInventorySlot.RightHandWeapon and <= eInventorySlot.DistanceWeapon)
                             continue;
@@ -519,22 +520,22 @@ namespace DOL.GS
 
         public override void OnItemMove(DbInventoryItem fromItem, DbInventoryItem toItem, eInventorySlot fromSlot, eInventorySlot toSlot)
         {
-            CheckAttackStateChange(fromSlot, toSlot);
-            CheckTradeWindow(fromItem, toItem);
-            SwitchWeaponContextually(fromSlot, toSlot);
+            CheckAttackStateChange(m_player, fromSlot, toSlot);
+            CheckTradeWindow(m_player, fromItem, toItem);
+            SwitchWeaponContextually(m_player, fromSlot, toSlot);
 
-            void CheckAttackStateChange(eInventorySlot fromSlot, eInventorySlot toSlot)
+            static void CheckAttackStateChange(GamePlayer player, eInventorySlot fromSlot, eInventorySlot toSlot)
             {
                 if (fromSlot is (>= eInventorySlot.RightHandWeapon and <= eInventorySlot.DistanceWeapon) or (>= eInventorySlot.FirstQuiver and <= eInventorySlot.FourthQuiver) ||
                     toSlot is (>= eInventorySlot.RightHandWeapon and <= eInventorySlot.DistanceWeapon) or (>= eInventorySlot.FirstQuiver and <= eInventorySlot.FourthQuiver))
                 {
-                    m_player.attackComponent.StopAttack();
+                    player.attackComponent.StopAttack();
                 }
             }
 
-            void CheckTradeWindow(DbInventoryItem fromItem, DbInventoryItem toItem)
+            static void CheckTradeWindow(GamePlayer player, DbInventoryItem fromItem, DbInventoryItem toItem)
             {
-                ITradeWindow window = m_player.TradeWindow;
+                ITradeWindow window = player.TradeWindow;
 
                 if (window != null)
                 {
@@ -543,90 +544,94 @@ namespace DOL.GS
                 }
             }
 
-            void SwitchWeaponContextually(eInventorySlot fromSlot, eInventorySlot toSlot)
+            static void SwitchWeaponContextually(GamePlayer player, eInventorySlot fromSlot, eInventorySlot toSlot)
             {
                 switch (toSlot)
                 {
                     case eInventorySlot.RightHandWeapon:
                     {
-                        m_player.SwitchWeapon(eActiveWeaponSlot.Standard);
+                        player.SwitchWeapon(eActiveWeaponSlot.Standard);
                         break;
                     }
                     case eInventorySlot.TwoHandWeapon:
                     {
-                        m_player.SwitchWeapon(eActiveWeaponSlot.TwoHanded);
+                        player.SwitchWeapon(eActiveWeaponSlot.TwoHanded);
                         break;
                     }
                     case eInventorySlot.DistanceWeapon:
                     {
-                        m_player.SwitchWeapon(eActiveWeaponSlot.Distance);
+                        player.SwitchWeapon(eActiveWeaponSlot.Distance);
                         break;
                     }
                     case eInventorySlot.LeftHandWeapon:
                     {
-                        if (m_player.ActiveWeaponSlot is not eActiveWeaponSlot.Distance)
-                            m_player.SwitchWeapon(m_player.ActiveWeaponSlot);
+                        if (player.ActiveWeaponSlot is not eActiveWeaponSlot.Distance)
+                            player.SwitchWeapon(player.ActiveWeaponSlot);
                         else
-                            m_player.SwitchWeapon(eActiveWeaponSlot.Standard);
+                            player.SwitchWeapon(eActiveWeaponSlot.Standard);
 
                         break;
                     }
                     case eInventorySlot.FirstQuiver:
                     {
-                        m_player.SwitchQuiver(eActiveQuiverSlot.First, true);
+                        player.SwitchQuiver(eActiveQuiverSlot.First, true);
                         break;
                     }
                     case eInventorySlot.SecondQuiver:
                     {
-                        m_player.SwitchQuiver(eActiveQuiverSlot.Second, true);
+                        player.SwitchQuiver(eActiveQuiverSlot.Second, true);
                         break;
                     }
                     case eInventorySlot.ThirdQuiver:
                     {
-                        m_player.SwitchQuiver(eActiveQuiverSlot.Third, true);
+                        player.SwitchQuiver(eActiveQuiverSlot.Third, true);
                         break;
                     }
                     case eInventorySlot.FourthQuiver:
                     {
-                        m_player.SwitchQuiver(eActiveQuiverSlot.Fourth, true);
+                        player.SwitchQuiver(eActiveQuiverSlot.Fourth, true);
                         break;
                     }
                     default:
                     {
+                        // A swap leaves the weapon slot occupied by the item that came from `toSlot`, so the active
+                        // weapon slot must be kept and refreshed to point at the new item instead of being abandoned.
+                        bool weaponSlotStillOccupied = player.Inventory.GetItem(fromSlot) != null;
+
                         switch (fromSlot)
                         {
                             case eInventorySlot.RightHandWeapon:
                             {
-                                if (m_player.ActiveWeaponSlot is eActiveWeaponSlot.Standard)
-                                    m_player.SwitchWeapon(eActiveWeaponSlot.TwoHanded);
+                                if (player.ActiveWeaponSlot is eActiveWeaponSlot.Standard)
+                                    player.SwitchWeapon(weaponSlotStillOccupied ? eActiveWeaponSlot.Standard : eActiveWeaponSlot.TwoHanded);
 
                                 break;
                             }
                             case eInventorySlot.TwoHandWeapon:
                             {
-                                if (m_player.ActiveWeaponSlot is eActiveWeaponSlot.TwoHanded)
-                                    m_player.SwitchWeapon(eActiveWeaponSlot.Standard);
+                                if (player.ActiveWeaponSlot is eActiveWeaponSlot.TwoHanded)
+                                    player.SwitchWeapon(weaponSlotStillOccupied ? eActiveWeaponSlot.TwoHanded : eActiveWeaponSlot.Standard);
 
                                 break;
                             }
                             case eInventorySlot.DistanceWeapon:
                             {
-                                if (m_player.ActiveWeaponSlot is eActiveWeaponSlot.Distance)
-                                    m_player.SwitchWeapon(eActiveWeaponSlot.Standard);
+                                if (player.ActiveWeaponSlot is eActiveWeaponSlot.Distance)
+                                    player.SwitchWeapon(weaponSlotStillOccupied ? eActiveWeaponSlot.Distance : eActiveWeaponSlot.Standard);
 
                                 break;
                             }
                             case eInventorySlot.LeftHandWeapon:
                             {
-                                if (m_player.ActiveWeaponSlot is eActiveWeaponSlot.TwoHanded or eActiveWeaponSlot.Standard)
-                                    m_player.SwitchWeapon(m_player.ActiveWeaponSlot);
+                                if (player.ActiveWeaponSlot is eActiveWeaponSlot.TwoHanded or eActiveWeaponSlot.Standard)
+                                    player.SwitchWeapon(player.ActiveWeaponSlot);
 
                                 break;
                             }
                         }
 
                         if (fromSlot is >= eInventorySlot.FirstQuiver and <= eInventorySlot.FourthQuiver)
-                            m_player.SwitchQuiver(eActiveQuiverSlot.None, true);
+                            player.SwitchQuiver(eActiveQuiverSlot.None, true);
 
                         break;
                     }
@@ -1044,16 +1049,8 @@ namespace DOL.GS
         public virtual bool IsEquippedSlot(eInventorySlot slot)
         {
             // skip weapons. only active weapons should fire equip event, done in player.SwitchWeapon
-            if (slot > eInventorySlot.DistanceWeapon || slot < eInventorySlot.RightHandWeapon)
-            {
-                foreach (eInventorySlot staticSlot in EQUIP_SLOTS)
-                {
-                    if (slot == staticSlot)
-                        return true;
-                }
-
-                return false;
-            }
+            if (slot is > eInventorySlot.DistanceWeapon or < eInventorySlot.RightHandWeapon)
+                return EquipmentSlots.Contains(slot);
 
             switch (slot)
             {
@@ -1189,43 +1186,13 @@ namespace DOL.GS
         /// </summary>
         protected override void UpdateChangedSlots()
         {
-            bool statsUpdated = false;
-            bool appearanceUpdated = false;
-
-            lock (InventorySlotLock)
+            lock (Lock)
             {
-                foreach (eInventorySlot updatedSlot in m_changedSlots)
-                {
-                    // Update appearance if one of changed slots is visible.
-                    if (!appearanceUpdated)
-                    {
-                        foreach (eInventorySlot visibleSlot in VISIBLE_SLOTS)
-                        {
-                            if (updatedSlot != visibleSlot)
-                                continue;
-                            
-                            appearanceUpdated = true;
-                            break;
-                        }
-                    }
-
-                    // Update stats if equipped item has changed.
-                    if (!statsUpdated && updatedSlot <= eInventorySlot.RightRing && updatedSlot >= eInventorySlot.RightHandWeapon)
-                        statsUpdated = true;
-                }
-
                 m_player.Out.SendInventorySlotsUpdate(m_changedSlots);
             }
 
             UpdateInventoryWeight();
             m_player.UpdateEncumbrance();
-
-            if (appearanceUpdated)
-                m_player.UpdateEquipmentAppearance();
-
-            if (statsUpdated)
-                m_player.Out.SendUpdateWeaponAndArmorStats();
-
             base.UpdateChangedSlots();
         }
 

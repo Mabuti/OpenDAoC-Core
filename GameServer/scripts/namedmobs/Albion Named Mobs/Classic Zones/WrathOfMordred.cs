@@ -135,7 +135,6 @@ namespace DOL.GS
 					spell.MoveCast = true;
 					spell.DamageType = (int)eDamageType.Heat;
 					m_HeatProc = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_HeatProc);
 				}
 				return m_HeatProc;
 			}
@@ -176,9 +175,9 @@ namespace DOL.AI.Brain
 					}
 					if (!living.effectListComponent.ContainsEffectForEffectType(eEffect.Stun))
 					{
-						AttackAction attackAction = Body.attackComponent.attackAction;
+						WeaponAction weaponAction = Body.attackComponent.weaponAction;
 
-						if (attackAction.NextTick - GameLoop.GameLoopTime <= 800 && CanWalk == false)
+						if (weaponAction != null && weaponAction.AttackRoundEndTime - GameLoop.GameLoopTime <= 800 && CanWalk == false)
 						{
 							Body.styleComponent.NextCombatStyle = null;
 							Body.styleComponent.NextCombatBackupStyle = null;
@@ -202,7 +201,6 @@ namespace DOL.AI.Brain
 					float angle = living.GetAngle(Body);
 					Point2D positionalPoint;
 					positionalPoint = living.GetPointFromHeading((ushort)(living.Heading + (90 * (4096.0 / 360.0))), 65);
-					//Body.WalkTo(positionalPoint.X, positionalPoint.Y, living.Z, 280);
 					Body.X = positionalPoint.X;
 					Body.Y = positionalPoint.Y;
 					Body.Z = living.Z;
@@ -219,4 +217,3 @@ namespace DOL.AI.Brain
         }
 	}
 }
-

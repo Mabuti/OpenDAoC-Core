@@ -177,7 +177,6 @@ namespace DOL.GS.Spells
 			{
 				player.StopReleaseTimer();
 				player.Out.SendPlayerRevive(player);
-				player.UpdatePlayerStatus();
 				player.Out.SendMessage("You have been resurrected by " + m_caster.GetName(0, false) + "!", eChatType.CT_System, eChatLoc.CL_SystemWindow);
 				//player.Notify(GamePlayerEvent.Revive, player, new RevivedEventArgs(Caster, Spell));
 
@@ -234,13 +233,13 @@ namespace DOL.GS.Spells
 
             //Lifeflight, the base call to Checkbegincast uses its own power check, which is bad for rez spells
             //so I added another check here.
-            if (m_caster.Mana < PowerCost(target))
+            if (m_caster.Mana < PowerCost(Target))
             {
                 MessageToCaster("You don't have enough power to cast that!", eChatType.CT_SpellResisted);
 				return false;
             }
 
-			GameLiving resurrectionCaster = target.TempProperties.GetProperty<GameLiving>(RESURRECT_CASTER_PROPERTY);
+			GameLiving resurrectionCaster = Target.TempProperties.GetProperty<GameLiving>(RESURRECT_CASTER_PROPERTY);
 			if (resurrectionCaster != null)
 			{
 				//already considering resurrection - do nothing

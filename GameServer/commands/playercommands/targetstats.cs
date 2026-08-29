@@ -2,10 +2,11 @@
 using System.Collections.Generic;
 using DOL.Database;
 using DOL.GS.PacketHandler;
+using static DOL.GS.NpcTemplateMgr;
 
 namespace DOL.GS.Commands
 {
-    [CmdAttribute("&targetstats",
+    [Cmd("&targetstats",
         ePrivLevel.Player,
         "Display various combat related info about your target",
         "/targetstats")]
@@ -28,12 +29,11 @@ namespace DOL.GS.Commands
             AddDefenseInfo(info, target);
             AddMiscellaneousInfo(info, target);
 
-            client.Out.SendCustomTextWindow($"[{target.Name}]", info);
+            client.Out.SendCustomTextWindow($"[{target.Name} stats]", info);
 
             static bool TryValidateTarget(GameClient client, out GameLiving target)
             {
-                target = client.Player.TargetObject as GameLiving;
-                target ??= client.Player;
+                target = (client.Player.TargetObject as GameLiving) ?? client.Player;
 
                 if (target == null)
                 {
@@ -77,8 +77,9 @@ namespace DOL.GS.Commands
             {
                 DbInventoryItem mainWeapon = target.ActiveWeapon;
                 DbInventoryItem leftWeapon = target.ActiveLeftWeapon;
-                bool isDualWieldAttack = WeaponAction.IsDualWieldAttack(mainWeapon, leftWeapon, target);
-                AttackData.eAttackType attackType = AttackData.GetAttackType(mainWeapon, isDualWieldAttack, target);
+                WeaponAction weaponAction = new(client.Player, target, mainWeapon, leftWeapon, 1.0, 0, null, 0);
+                weaponAction.DetermineDualWieldMechanic(); // Must be called manually since the attack is not actually being executed.
+                AttackData.eAttackType attackType = AttackData.GetAttackType(mainWeapon, weaponAction, client.Player);
 
                 if (target is GameNPC || mainWeapon != null)
                     AddMainHandInfo(info, client, target, mainWeapon, attackType);
@@ -88,18 +89,18 @@ namespace DOL.GS.Commands
 
                 static void AddWeaponInfo(List<string> info, string header, GameClient client, GameLiving target, DbInventoryItem weapon, AttackData.eAttackType attackType)
                 {
-                    double weaponDamage = target.attackComponent.AttackDamage(weapon, null, out double weaponDamageCap);
-                    double effectiveness = target.attackComponent.CalculateEffectiveness(weapon);
-                    weaponDamage *= effectiveness;
-                    weaponDamageCap *= effectiveness;
+                    double weaponDamage = target.attackComponent.WeaponDamage(weapon, null, target.Effectiveness, out double weaponDamageCap);
+                    weaponDamage *= target.attackComponent.CalculateDamageTypeModifier(weapon);
 
                     info.Add("");
                     info.Add(header);
                     info.Add($"Weapon damage:  {weaponDamage:0}  |  {weaponDamageCap:0} (cap)");
 
-                    _ = target.attackComponent.CalculateWeaponSkill(weapon, client.Player, out _, out (double lowerLimit, double upperLimit) varianceRange, out _, out double baseWeaponSkill);
+                    _ = target.attackComponent.CalculateDamageWeaponSkill(weapon, 0, out double baseWeaponSkill);
+                    int spec = target.attackComponent.CalculateSpec(weapon);
+                    (double lowerVariance, double upperVariance) = target.attackComponent.CalculateVarianceRange(client.Player, spec);
                     info.Add($"Weapon skill:  {baseWeaponSkill:0.00}");
-                    info.Add($"Variance range:  {varianceRange.lowerLimit:0.00}~{varianceRange.upperLimit:0.00}");
+                    info.Add($"Variance range:  {lowerVariance:0.00}~{upperVariance:0.00}");
                     info.Add($"Attack speed:  {target.AttackSpeed(weapon) / 1000.0:0.00#}");
 
                     double defensePenetration = target.attackComponent.CalculateDefensePenetration(weapon, client.Player.Level);
@@ -123,12 +124,12 @@ namespace DOL.GS.Commands
                     info.Add(defensePenetrationString);
                 }
 
-                static void AddMainHandInfo(List<string> info, GameClient client, GameLiving target, DbInventoryItem weapon, AttackData.eAttackType attackType)
+                static void AddMainHandInfo(List<string> info, GameClient client, GameLiving target, DbInventoryItem rightWeapon, AttackData.eAttackType attackType)
                 {
-                    AddWeaponInfo(info, "+ Attack (main hand):", client, target, weapon, attackType);
+                    AddWeaponInfo(info, "+ Attack (main hand):", client, target, rightWeapon, attackType);
                 }
 
-                static void AddOffHandInfo(List<string> info, GameClient client, GameLiving target, DbInventoryItem weapon, AttackData.eAttackType attackType)
+                static void AddOffHandInfo(List<string> info, GameClient client, GameLiving target, DbInventoryItem leftWeapon, AttackData.eAttackType attackType)
                 {
                     if (target is GameNPC npcTarget)
                     {
@@ -139,17 +140,34 @@ namespace DOL.GS.Commands
                     }
                     else if (target is GamePlayer)
                     {
-                        AddWeaponInfo(info, "+ Attack (offhand):", client, target, weapon, attackType);
-                        double leftHandSwingChance = target.attackComponent.CalculateDwCdLeftHandSwingChance();
+                        AddWeaponInfo(info, "+ Attack (offhand):", client, target, leftWeapon, attackType);
 
-                        if (leftHandSwingChance > 0)
-                            info.Add($"Swing:  {leftHandSwingChance:0.00}%");
-                        else
+                        switch (attackType)
                         {
-                            (double doubleSwingChance, double tripleSwingChance, double quadSwingChance) = target.attackComponent.CalculateHthSwingChances(weapon);
+                            case AttackData.eAttackType.MeleeDualWield:
+                            {
+                                if (target.GetBaseSpecLevel(Specs.Left_Axe) > 0)
+                                {
+                                    double leftAxeModifier = target.attackComponent.CalculateLeftAxeModifier();
+                                    info.Add($"Left Axe modifier (both hands):  {leftAxeModifier * 100:0.00}%");
+                                }
+                                else
+                                {
+                                    double leftHandSwingChance = target.attackComponent.CalculateDwCdLeftHandSwingChance();
+                                    info.Add($"Swing:  {leftHandSwingChance * 100:0.00}%");
+                                }
 
-                            if (doubleSwingChance > 0)
-                                info.Add($"Double swing:  {doubleSwingChance:0.00}%  |  Triple swing:  {tripleSwingChance:0.00}%  |  Quad swing:  {quadSwingChance:0.00}%");
+                                break;
+                            }
+                            case AttackData.eAttackType.MeleeHandToHand:
+                            {
+                                (double doubleChance, double tripleChance, double quadChance) = target.attackComponent.CalculateHthSwingChances();
+
+                                if (doubleChance > 0)
+                                    info.Add($"Double swing:  {doubleChance * 100:0.00}%  |  Triple swing:  {tripleChance * 100:0.00}%  |  Quad swing:  {quadChance * 100:0.00}%");
+
+                                break;
+                            }
                         }
                     }
                 }
@@ -197,13 +215,12 @@ namespace DOL.GS.Commands
                 parries[0] = target.GetModified(eProperty.ParryChance) * 0.001;
                 blocks[0] = target.GetModified(eProperty.BlockChance) * 0.001;
 
-
                 for (int i = 1; i < spanLength; i++)
                 {
                     dummyAttackData.AttackType = attackTypes[i - 1];
-                    evades[i] = target.TryEvade(dummyAttackData, lastAttackData);
+                    evades[i] = target.TryEvade(dummyAttackData, lastAttackData, meleeAttackerCount);
                     parries[i] = target.TryParry(dummyAttackData, lastAttackData, meleeAttackerCount);
-                    blocks[i] = target.TryBlock(dummyAttackData, out _);
+                    blocks[i] = target.TryBlock(dummyAttackData, false, out _);
                 }
 
                 info.Add("");
@@ -219,8 +236,19 @@ namespace DOL.GS.Commands
                 info.Add("+ Miscellaneous:");
                 info.Add($"Level:  {target.Level}");
                 info.Add($"Health:  {target.Health} / {target.MaxHealth}");
-                info.Add($"Power:  {target.Mana} / {target.MaxMana}");
+
+                if (target is GamePlayer)
+                    info.Add($"Power:  {target.Mana} / {target.MaxMana}");
+
                 info.Add($"Movement speed:  {target.movementComponent.CurrentSpeed} / {target.movementComponent.MaxSpeed}");
+
+                if (target is GameNPC npc)
+                {
+                    eBodyType bodyType = (eBodyType) npc.BodyType;
+
+                    if (bodyType is not eBodyType.None)
+                        info.Add($"Type:  {bodyType}");
+                }
             }
         }
     }

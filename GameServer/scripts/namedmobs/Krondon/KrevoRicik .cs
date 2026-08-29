@@ -77,7 +77,7 @@ namespace DOL.GS
 			base.AddToWorld();
 			return true;
 		}
-        public override void Die(GameObject killer)
+        public override void ProcessDeath(GameObject killer)
         {
 			foreach (GameNPC add in GetNPCsInRadius(4000))
 			{
@@ -85,7 +85,7 @@ namespace DOL.GS
 				if (add.IsAlive && add.Brain is KrevoAddBrain)
 					add.Die(this);
 			}
-			base.Die(killer);
+			base.ProcessDeath(killer);
         }
     }
 }
@@ -253,7 +253,6 @@ namespace DOL.GS
 					spell.Type = eSpellType.DirectDamageNoVariance.ToString();
 					spell.DamageType = (int)eDamageType.Matter;
 					m_KrevoAddBomb = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_KrevoAddBomb);
 				}
 				return m_KrevoAddBomb;
 			}

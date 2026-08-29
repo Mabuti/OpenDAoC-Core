@@ -75,14 +75,14 @@ namespace DOL.GS
 			base.AddToWorld();
 			return true;
 		}
-		public override void Die(GameObject killer)
+		public override void ProcessDeath(GameObject killer)
 		{
 			foreach (GameNPC npc in GetNPCsInRadius(2500))
 			{
 				if (npc != null && npc.IsAlive && npc.Brain is ZytkaAddBrain)
 					npc.RemoveFromWorld();
 			}
-			base.Die(killer);
+			base.ProcessDeath(killer);
 		}
 		public override void OnAttackEnemy(AttackData ad) //on enemy actions
 		{
@@ -109,10 +109,9 @@ namespace DOL.GS
 					spell.Name = "Fire Blast";
 					spell.Range = 500;
 					spell.SpellID = 11908;
-					spell.Target = "Enemy";
+					spell.Target = eSpellTarget.ENEMY.ToString();
 					spell.Type = eSpellType.DirectDamageNoVariance.ToString();
 					m_ZytkaDD = new Spell(spell, 60);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_ZytkaDD);
 				}
 				return m_ZytkaDD;
 			}

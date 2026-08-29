@@ -63,7 +63,7 @@ namespace DOL.GS
 			base.AddToWorld();
 			return true;
 		}
-        public override void Die(GameObject killer)
+        public override void ProcessDeath(GameObject killer)
         {
 			foreach (GameNPC npc in GetNPCsInRadius(2500))
 			{
@@ -73,7 +73,7 @@ namespace DOL.GS
 						npc.Die(npc);
 				}
 			}
-			base.Die(killer);
+			base.ProcessDeath(killer);
         }
     }
 }
@@ -88,8 +88,8 @@ namespace DOL.AI.Brain
 			AggroRange = 600;
 			ThinkInterval = 1500;
 		}
-		public static bool Ignite_Barrel = false;
-		public static bool BringAdds = false;
+		public bool Ignite_Barrel = false;
+		public bool BringAdds = false;
 		private bool RemoveAdds = false;
 		public override void Think()
 		{
@@ -309,7 +309,6 @@ namespace DOL.GS
 					spell.MoveCast = true;
 					spell.DamageType = (int)eDamageType.Heat;
 					m_Barrel_aoe = new Spell(spell, 70);
-					SkillBase.AddScriptedSpell(GlobalSpellsLines.Mob_Spells, m_Barrel_aoe);
 				}
 				return m_Barrel_aoe;
 			}

@@ -2,8 +2,10 @@ using System;
 using System.Collections;
 using System.IO;
 using System.Reflection;
+using System.Threading;
 using DOL.GameServerConsole;
 using DOL.GS;
+using DOL.GS.ServerProperties;
 
 namespace DOL.DOLServer.Actions
 {
@@ -36,8 +38,12 @@ namespace DOL.DOLServer.Actions
             get { return "Starts the DOL server in console mode"; }
         }
 
-        private bool crashOnFail = false;
+        /// <summary>
+        /// Mock client for console commands
+        /// </summary>
+        private GameClient _consoleClient;
 
+        private bool _crashOnFail = false;
 
         private static bool StartServer()
         {
@@ -62,7 +68,7 @@ namespace DOL.DOLServer.Actions
                 configFile = new FileInfo(currentAssembly.DirectoryName + Path.DirectorySeparatorChar + "config" + Path.DirectorySeparatorChar + "serverconfig.xml");
             }
             if (parameters.ContainsKey("-crashonfail"))
-                crashOnFail = true;
+                _crashOnFail = true;
 
             var config = new GameServerConfiguration();
             if (configFile.Exists)
@@ -83,7 +89,7 @@ namespace DOL.DOLServer.Actions
             GameServer.CreateInstance(config);
             StartServer();
 
-            if (crashOnFail && GameServer.Instance.ServerStatus == EGameServerStatus.GSS_Closed)
+            if (_crashOnFail && GameServer.Instance.ServerStatus == EGameServerStatus.GSS_Closed)
             {
                 throw new ApplicationException("Server did not start properly.");
             }
@@ -94,7 +100,15 @@ namespace DOL.DOLServer.Actions
             {
                 string line = Console.ReadLine();
 
-                if (line == null)
+                if (line is null)
+                {
+                    // Service deployments may redirect stdin to /dev/null. Back off on EOF instead of
+                    // spinning continuously, while still allowing input to resume if it becomes available.
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                if (line.Length == 0)
                     continue;
 
                 switch (line.ToLower())
@@ -106,32 +120,61 @@ namespace DOL.DOLServer.Actions
                         Console.Clear();
                         break;
                     default:
-                    {
-                        if (line.Length <= 0)
-                            break;
-
-                        if (line[0] != '/')
-                            line = $"/{line}";
-
-                        GameClient client = new(null);
-                        client.Out = new ConsolePacketLib();
-
-                        try
-                        {
-                            if (!ScriptMgr.HandleCommand(client, $"&{line[1..]}"))
-                                Console.WriteLine($"Unknown command: {line}");
-                        }
-                        catch (Exception e)
-                        {
-                            Console.WriteLine(e.ToString());
-                        }
-
+                        ProcessCommand(line);
                         break;
-                    }
                 }
             }
 
             GameServer.Instance?.Stop();
+        }
+
+        private void ProcessCommand(string line)
+        {
+            try
+            {
+                if (line[0] != '/')
+                    line = $"/{line}";
+
+                EnsureConsoleClientIsInitialized();
+
+                if (!ScriptMgr.HandleCommand(_consoleClient, $"&{line[1..]}"))
+                {
+                    ConsoleColor before = Console.ForegroundColor;
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.WriteLine($"Unknown command: {line}");
+                    Console.ForegroundColor = before;
+                }
+            }
+            catch (Exception e)
+            {
+                ConsoleColor before = Console.ForegroundColor;
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine(e.ToString());
+                Console.ForegroundColor = before;
+            }
+        }
+
+        private void EnsureConsoleClientIsInitialized()
+        {
+            if (_consoleClient != null)
+                return;
+
+            _consoleClient = new(null)
+            {
+                Account = new()
+                {
+                    Name = "ConsoleAdmin",
+                    Language = Properties.SERV_LANGUAGE,
+                    PrivLevel = (uint) ePrivLevel.Admin
+                },
+                ClientState = GameClient.eClientState.Playing,
+                Out = new ConsolePacketLib()
+            };
+            _consoleClient.Player = new(_consoleClient, null)
+            {
+                Name = _consoleClient.Account.Name,
+                Realm = eRealm.None
+            };
         }
     }
 }

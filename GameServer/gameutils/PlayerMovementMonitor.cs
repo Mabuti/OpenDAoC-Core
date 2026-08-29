@@ -1,14 +1,24 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Reflection;
+using DOL.Logging;
+using DOL.Timing;
 
-namespace DOL.GS 
+namespace DOL.GS
 {
     public class PlayerMovementMonitor
     {
-        private static readonly Logging.Logger log = Logging.LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
+        private static readonly Logger log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
 
         private readonly GamePlayer _player;                   // Player being monitored for movement and speed hacks.
+
+        // Stuck/safe position snapshot fields.
+        private PositionSample _safePosition;                  // The last validated safe position.
+        private PositionSample _candidateSafePosition;         // The position currently being tested.
+        private long _nextSafePosCheckTime;                    // Timestamp for the next safe position check.
+
+        // Speed hack fields.
         private PositionSample _previous;                      // Previous position sample recorded.
         private PositionSample _current;                       // Current position sample being recorded.
         private PositionSample _teleport;                      // Position sample to use to teleport the player back to if a speed hack is detected.
@@ -18,15 +28,16 @@ namespace DOL.GS
         private long _accumulatedPauseTime;                    // Accumulated time for which recording is paused, used to increase violation validity duration after a teleport.
         private long _lastSpeedDecreaseTime;                   // Time when the last speed decrease was recorded, used to handle latency issues.
         private short _previousMaxSpeed;                       // Previous maximum speed of the player, used to determine if speed has decreased.
+        private short _cachedMaxSpeed;                         // Cached max speed to avoid recalculating it too often.
+        private long _cachedMaxSpeedTime;                      // Time when max speed was calculated.
 
-        // Cached values to avoid recalculating player max speed too often.
-        // This is a workaround for the fact that `GamePlayer.MaxSpeed` currently recalculates on every access.
-        // This assumes that the player's max speed does not change between calls to `RecordPosition` and `ValidateMovement`.
-        private short _cachedMaxSpeed;
-        private long _cachedMaxSpeedTick;
+        // Stuck/safe position snapshot configuration.
+        public static int SafePositionUpdateInterval { get; set; } = 1500;  // How often a new safe spot check occurs.
+        public static int SafePositionMinDistance { get; set; } = 125;      // Player must move this far from the previous safe spot for a new one to be set.
 
+        // Speed hack configuration.
         public static int ViolationThreshold { get; set; } = 6;             // Number of consecutive speed hack detections before action is taken.
-        public static int ViolationValidityDuration { get; set; } = 1000;   // Duration in milliseconds for which speed hack violations are considered valid.
+        public static int ViolationValidityDuration { get; set; } = 1500;   // Duration in milliseconds for which violations are considered valid (must be at least ViolationThreshold * ~210).
         public static int TeleportThreshold { get; set; } = 5;              // Number of consecutive teleports before kicking.
         public static double MaxSpeedToleranceFactor { get; set; } = 1.15;  // Factor to allow for some tolerance in speed checks (measurement errors, lag, etc.).
         public static int LatencyBuffer { get; set; } = 750;                // Buffer time to account for latency when checking speed changes.
@@ -37,9 +48,9 @@ namespace DOL.GS
             _violationTimestamps = new();
         }
 
-        public void RecordPosition()
+        public void RecordPosition(Vector3 position)
         {
-            long timestamp = GameLoop.GetRealTime();
+            long timestamp = MonotonicTime.NowMs;
 
             if (_pausedUntil > timestamp)
                 return;
@@ -53,10 +64,9 @@ namespace DOL.GS
                 _previousMaxSpeed = _current.MaxSpeed;
             }
 
-            PositionSample sample = new(_player.X, _player.Y, _player.Z, GameLoop.GameLoopTime, timestamp, currentMaxSpeed);
+            PositionSample sample = new(position, GameLoop.GameLoopTime, timestamp, currentMaxSpeed);
 
             // Check if more than one position sample is being recorded in the same game loop tick.
-            // If so, we replace the current sample with the new one.
             if (_current.GameLoopTime == GameLoop.GameLoopTime)
                 _current = sample;
             else
@@ -64,25 +74,27 @@ namespace DOL.GS
                 _previous = _current;
                 _current = sample;
             }
+
+            // Update safe position.
+            // Note: Currently affected by _pausedUntil. Not sure if that's a problem.
+            if (timestamp > _nextSafePosCheckTime)
+                UpdateSafePosition(sample, timestamp);
         }
 
         public void ValidateMovement()
         {
-            // We don't know when the position update was actually received, only when it was processed by the game loop.
-            // We account for processing delay uncertainty by adding a small buffer to the time difference, equal to one game loop tick.
-            // Ad a side effect, if the server is lagging, the speed hack detection becomes more lenient.
-
             double timeDiff = _current.Timestamp - _previous.Timestamp;
 
             // Skip if timestamps are invalid (should not happen).
             if (timeDiff <= 0)
                 return;
 
+            // We don't know when the position update was actually received, only when it was processed by the game loop.
+            // We account for processing delay uncertainty by adding a small buffer to the time difference, equal to one game loop tick.
             timeDiff += GameLoop.TickDuration;
+
             bool distancedViolationDetected = false;
-            long dx = _current.X - _previous.X;
-            long dy = _current.Y - _previous.Y;
-            long squaredDistance = dx * dx + dy * dy;
+            float squaredDistance = (_current.Position.AsVector2() - _previous.Position.AsVector2()).LengthSquared();
             double allowedMaxSpeed = CalculateAllowedMaxSpeed(_current) * MaxSpeedToleranceFactor;
             double allowedMaxDistance = allowedMaxSpeed * timeDiff / 1000.0;
             double allowedMaxDistanceSquared = allowedMaxDistance * allowedMaxDistance;
@@ -132,15 +144,30 @@ namespace DOL.GS
             }
         }
 
-        public void OnTeleportOrRegionChange()
+        public void Pause()
         {
             _previous = default;
             _current = default;
+            _safePosition = default;
+            _candidateSafePosition = default;
+            _nextSafePosCheckTime = 0;
 
-            long now = GameLoop.GetRealTime();
+            long now = MonotonicTime.NowMs;
             long previousPauseUntil = Math.Max(_pausedUntil, now);
             _pausedUntil = now + LatencyBuffer;
             _accumulatedPauseTime += _pausedUntil - previousPauseUntil;
+        }
+
+        public bool TryGetSafePosition(out Vector3 safePosition)
+        {
+            if (_safePosition.Timestamp == 0)
+            {
+                safePosition = Vector3.Zero;
+                return false;
+            }
+
+            safePosition = _safePosition.Position;
+            return true;
         }
 
         private double CalculateAllowedMaxSpeed(PositionSample current)
@@ -183,7 +210,8 @@ namespace DOL.GS
             {
                 _previous = _current;
                 _current = _teleport;
-                _player.MoveTo(_player.CurrentRegionID, _teleport.X, _teleport.Y, _teleport.Z, _player.Heading); // Will call `OnTeleport`.
+                Vector3 position = _teleport.Position;
+                _player.MoveTo(_player.CurrentRegionID, (int) position.X, (int) position.Y, (int) position.Z, _player.Heading); // Will call `OnTeleport`.
                 _teleportCount++;
             }
 
@@ -208,33 +236,36 @@ namespace DOL.GS
         {
             long now = GameLoop.GameLoopTime;
 
-            if (_cachedMaxSpeedTick != now)
+            if (_cachedMaxSpeedTime != now)
             {
                 _cachedMaxSpeed = _player.Steed?.MaxSpeed ?? _player.MaxSpeed;
-                _cachedMaxSpeedTick = now;
+                _cachedMaxSpeedTime = now;
             }
 
             return _cachedMaxSpeed;
         }
 
-        private readonly struct PositionSample
+        private void UpdateSafePosition(PositionSample currentSample, long now)
         {
-            public readonly int X;
-            public readonly int Y;
-            public readonly int Z;
-            public readonly long GameLoopTime;
-            public readonly long Timestamp;
-            public readonly short MaxSpeed;
+            _nextSafePosCheckTime = now + SafePositionUpdateInterval;
 
-            public PositionSample(int x, int y, int z, long gameLoopTime, long timestamp, short maxSpeed)
+            // If we have no history yet.
+            if (_safePosition.Timestamp == 0)
             {
-                X = x;
-                Y = y;
-                Z = z;
-                GameLoopTime = gameLoopTime;
-                Timestamp = timestamp;
-                MaxSpeed = maxSpeed;
+                _safePosition = currentSample;
+                _candidateSafePosition = currentSample;
+                return;
+            }
+
+            float squaredDistance = (currentSample.Position.AsVector2() - _candidateSafePosition.Position.AsVector2()).LengthSquared();
+
+            if (squaredDistance > SafePositionMinDistance * SafePositionMinDistance)
+            {
+                _safePosition = _candidateSafePosition;
+                _candidateSafePosition = currentSample;
             }
         }
+
+        private readonly record struct PositionSample(Vector3 Position, long GameLoopTime, long Timestamp, short MaxSpeed);
     }
 }

@@ -15,32 +15,30 @@ namespace DOL.AI.Brain
 
 		protected override void CheckPlayerAggro()
 		{
-			foreach (GamePlayer player in Body.GetPlayersInRadius((ushort)AggroRange))
+			foreach (var player in BuildPlayerAggroCandidateLoop())
 			{
 				if (!CanAggroTarget(player))
-					continue;
-
-				if (player.IsStealthed || player.Steed != null)
 					continue;
 
 				if (player.effectListComponent.ContainsEffectForEffectType(eEffect.Shade))
 					continue;
 
-				SendLosCheckForAggro(player, player);
+				SendPlayerAggroLosCheck(player, player);
 				// We don't know if the LoS check will be positive, so we have to ask other players
 			}
 		}
 
 		protected override void CheckNpcAggro()
 		{
-			foreach (GameNPC npc in Body.GetNPCsInRadius((ushort)AggroRange))
+			foreach (var npc in BuildNpcAggroCandidateLoop())
 			{
 				if (!CanAggroTarget(npc))
 					continue;
+
 				if ((npc.Flags & GameNPC.eFlags.FLYING) != 0)
 					continue;
 
-				AddToAggroList(npc, npc.Level << 1);
+				AddToAggroList(npc);
 				// No LoS check, we just attack what's in range
 				return;
 			}

@@ -15,22 +15,22 @@ namespace DOL.AI.Brain
 		public override bool Start()
 		{
 			if (!base.Start()) return false;
-			Body.CurrentWaypoint = MovementMgr.LoadPath(!string.IsNullOrEmpty(Body.PathID) ? Body.PathID : Body.InternalID + " Rounds");
-			Body.MoveOnPath(Body.CurrentWaypoint.MaxSpeed);
+			Body.CurrentPathPoint = MovementMgr.LoadPath(!string.IsNullOrEmpty(Body.PathID) ? Body.PathID : Body.InternalID + " Rounds");
+			Body.MoveOnPath(Body.CurrentPathPoint.MaxSpeed);
 			return true;
 		}
 		/// <summary>
 		/// Add living to the aggrolist
 		/// save path of player before attack to walk back to way point after fight
 		/// </summary>
-		public override void AddToAggroList(GameLiving living, long aggroAmount)
+		public override void AddToAggroList(GameLiving living, long aggroAmount, bool ignoreConfusion)
 		{
 			//save current position in path go to here and reload path point
 			//insert path in pathpoint
-			PathPoint temporaryPathPoint = new PathPoint(Body.X, Body.Y, Body.Z, Body.CurrentSpeed, Body.CurrentWaypoint.Type);
-			temporaryPathPoint.Next = Body.CurrentWaypoint;
-			temporaryPathPoint.Prev = Body.CurrentWaypoint.Prev;
-			Body.CurrentWaypoint = temporaryPathPoint;
+			PathPoint temporaryPathPoint = new PathPoint(Body.X, Body.Y, Body.Z, Body.CurrentSpeed, Body.CurrentPathPoint.Type);
+			temporaryPathPoint.Next = Body.CurrentPathPoint;
+			temporaryPathPoint.Prev = Body.CurrentPathPoint.Prev;
+			Body.CurrentPathPoint = temporaryPathPoint;
 			//this path point will be not available after the following point because no link to itself
 			base.AddToAggroList(living, aggroAmount);
 		}
@@ -44,7 +44,7 @@ namespace DOL.AI.Brain
 		{
 			GameLiving living = base.CalculateNextAttackTarget();
 			if (living == null)
-				Body.MoveOnPath(Body.CurrentWaypoint.MaxSpeed);
+				Body.MoveOnPath(Body.CurrentPathPoint.MaxSpeed);
 			return living;
 		}
 	}

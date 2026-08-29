@@ -39,12 +39,17 @@ namespace DOL.Database
 		/// </summary>
 		public ElementBinding[] ElementBindings { get; }
 		/// <summary>
-		/// Retrieve Element Bindings for DataTable Fields Only
+		/// Element Bindings for DataTable Fields Only
 		/// </summary>
-		public IEnumerable<ElementBinding> FieldElementBindings 
-		{
-			get { return ElementBindings.Where(bind => bind.Relation == null); }
-		}
+		public ElementBinding[] FieldElementBindings { get; }
+		/// <summary>
+		/// Element Bindings that can be part of an UPDATE statement
+		/// </summary>
+		public ElementBinding[] UpdateElementBindings { get; }
+		/// <summary>
+		/// Element Binding representing the LastTimeRowUpdated column, if present
+		/// </summary>
+		public ElementBinding LastUpdatedBinding { get; }
 		/// <summary>
 		/// Data Table Handled
 		/// </summary>
@@ -77,56 +82,56 @@ namespace DOL.Database
 			UsesPreCaching = AttributeUtil.GetPreCachedFlag(ObjectType);
 			if (UsesPreCaching)
 				_precache = new ConcurrentDictionary<object, DataObject>();
-			
-                       // Parse Table Type
-                       var elementBindings = ObjectType
-                               .GetMembers(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                               .Select(member => new ElementBinding(member))
-                               .Where(bind => bind.IsDataElementBinding)
-                               .ToList();
+			// Parse Table Type.
+			// NOTE (merge): retains the fork's NonPublic|Instance reflection so inherited/non-public
+			// data members still bind; the IsDataElementBinding filter keeps this safe.
+			var elementBindings = ObjectType
+				.GetMembers(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+				.Select(member => new ElementBinding(member))
+				.Where(bind => bind.IsDataElementBinding)
+				.ToList();
 
-                       // Views Can't Handle Auto GUID Key
-                       if (!isView)
-                       {
-                               var objectIdMember = FindObjectIdMember(ObjectType);
-                               if (objectIdMember != null)
-                               {
-                                       var fieldElementBindings = elementBindings
-                                               .Where(bind => bind.Relation == null)
-                                               .ToList();
-                                       var objectIdColumnName = string.Format("{0}_ID", TableName);
-                                       var objectIdAlreadyBound = fieldElementBindings.Any(bind =>
-                                               bind != null &&
-                                               (string.Equals(bind.ColumnName, objectIdColumnName, StringComparison.OrdinalIgnoreCase) ||
-                                                string.Equals(bind.ColumnName, objectIdMember.Name, StringComparison.OrdinalIgnoreCase)));
+			// Snapshot of non-relation bindings *before* any synthetic key column is added.
+			var preKeyFieldBindings = elementBindings.Where(bind => bind.Relation == null).ToList();
 
-                                       if (!objectIdAlreadyBound)
-                                       {
-                                               ElementBinding implicitBinding = null;
+			// Views can't handle auto GUID key.
+			if (!isView)
+			{
+				// NOTE (merge): FindObjectIdMember resolves ObjectId through the hierarchy and via
+				// field or property, where upstream's GetProperty("ObjectId") returns null.
+				var objectIdMember = FindObjectIdMember(ObjectType);
 
-                                               // If no Primary Key AutoIncrement add GUID
-                                               if (fieldElementBindings.Any(bind => bind.PrimaryKey != null && !bind.PrimaryKey.AutoIncrement))
-                                               {
-                                                       implicitBinding = new ElementBinding(objectIdMember,
-                                                               new DataElement { Unique = true },
-                                                               objectIdColumnName);
-                                               }
-                                               else if (fieldElementBindings.All(bind => bind.PrimaryKey == null))
-                                               {
-                                                       implicitBinding = new ElementBinding(objectIdMember,
-                                                               new PrimaryKey(),
-                                                               objectIdColumnName);
-                                               }
+				if (objectIdMember != null)
+				{
+					var objectIdColumnName = string.Format("{0}_ID", TableName);
+					var objectIdAlreadyBound = preKeyFieldBindings.Any(bind =>
+						bind != null &&
+						(string.Equals(bind.ColumnName, objectIdColumnName, StringComparison.OrdinalIgnoreCase) ||
+						 string.Equals(bind.ColumnName, objectIdMember.Name, StringComparison.OrdinalIgnoreCase)));
 
-                                               if (implicitBinding != null)
-                                               {
-                                                       elementBindings.Add(implicitBinding);
-                                               }
-                                       }
-                               }
-                       }
-			
-                       ElementBindings = elementBindings.ToArray();
+					if (!objectIdAlreadyBound)
+					{
+						ElementBinding implicitBinding = null;
+
+						// If no Primary Key AutoIncrement add GUID.
+						if (preKeyFieldBindings.Any(bind => bind.PrimaryKey != null && !bind.PrimaryKey.AutoIncrement))
+							implicitBinding = new ElementBinding(objectIdMember, new DataElement { Unique = true }, objectIdColumnName);
+						else if (preKeyFieldBindings.All(bind => bind.PrimaryKey == null))
+							implicitBinding = new ElementBinding(objectIdMember, new PrimaryKey(), objectIdColumnName);
+
+						if (implicitBinding != null)
+							elementBindings.Add(implicitBinding);
+					}
+				}
+			}
+
+			ElementBindings = elementBindings.ToArray();
+
+			// Cache final derived collections once ElementBindings is settled.
+			FieldElementBindings = ElementBindings.Where(static bind => bind.Relation == null).ToArray();
+			UpdateElementBindings = FieldElementBindings.Where(static bind => bind.PrimaryKey == null && bind.ReadOnly == null).ToArray();
+			LastUpdatedBinding = UpdateElementBindings.FirstOrDefault(static bind => bind.ColumnName == nameof(DataObject.LastTimeRowUpdated));
+
 
 			// Prepare Table
 			Table = new DataTable(TableName);

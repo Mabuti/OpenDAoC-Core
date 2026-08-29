@@ -5,8 +5,13 @@ namespace DOL.GS
     /// </summary>
     public class ECSGameAbilityEffect : ECSGameEffect, IPooledList<ECSGameAbilityEffect>
     {
-        public override string Name { get { return "Default Ability Name"; } }
+        public override string Name => "Default Ability Name";
 
         public ECSGameAbilityEffect(in ECSGameEffectInitParams initParams) : base(initParams) { }
+
+        public override long GetNextTick()
+        {
+            return NextTick > 0 ? NextTick : base.GetNextTick();
+        }
     }
 }

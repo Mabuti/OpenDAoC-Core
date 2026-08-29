@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
 using DOL.Logging;
@@ -11,7 +10,7 @@ namespace DOL.GS
     {
         private static readonly Logger log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
 
-        private List<LivingBeingKilled> _list;
+        private ServiceObjectView<LivingBeingKilled> _view;
 
         public static ReaperService Instance { get; }
 
@@ -23,24 +22,23 @@ namespace DOL.GS
         public override void Tick()
         {
             ProcessPostedActionsParallel();
-            int lastValidIndex;
 
             try
             {
-                _list = ServiceObjectStore.UpdateAndGetAll<LivingBeingKilled>(ServiceObjectType.LivingBeingKilled, out lastValidIndex);
+                _view = ServiceObjectStore.UpdateAndGetView<LivingBeingKilled>(ServiceObjectType.LivingBeingKilled);
             }
             catch (Exception e)
             {
                 if (log.IsErrorEnabled)
-                    log.Error($"{nameof(ServiceObjectStore.UpdateAndGetAll)} failed. Skipping this tick.", e);
+                    log.Error($"{nameof(ServiceObjectStore.UpdateAndGetView)} failed. Skipping this tick.", e);
 
                 return;
             }
 
-            GameLoop.ExecuteForEach(_list, lastValidIndex + 1, TickInternal);
+            _view.ExecuteForEach(TickInternal);
 
             if (Diagnostics.CheckServiceObjectCount)
-                Diagnostics.PrintServiceObjectCount(ServiceName, ref EntityCount, _list.Count);
+                Diagnostics.PrintServiceObjectCount(ServiceName, ref EntityCount, _view.TotalValidCount);
         }
 
         private static void TickInternal(LivingBeingKilled livingBeingKilled)
@@ -50,12 +48,11 @@ namespace DOL.GS
                 if (Diagnostics.CheckServiceObjectCount)
                     Interlocked.Increment(ref Instance.EntityCount);
 
-                long startTick = GameLoop.GetRealTime();
+                TickMonitor monitor = new();
                 livingBeingKilled.Killed.ProcessDeath(livingBeingKilled.Killer);
-                long stopTick = GameLoop.GetRealTime();
 
-                if (stopTick - startTick > Diagnostics.LongTickThreshold)
-                    log.Warn($"Long {Instance.ServiceName}.{nameof(Tick)} for {livingBeingKilled} Time: {stopTick - startTick}ms");
+                if (monitor.IsLongTick(out long elapsedMs) && log.IsWarnEnabled)
+                    log.Warn($"Long {Instance.ServiceName}.{nameof(Tick)} for {livingBeingKilled} Time: {elapsedMs}ms");
             }
             catch (Exception e)
             {
@@ -64,7 +61,10 @@ namespace DOL.GS
             finally
             {
                 if (livingBeingKilled != null)
+                {
                     ServiceObjectStore.Remove(livingBeingKilled);
+                    livingBeingKilled.Killed.OnReaperServiceHandlingComplete();
+                }
             }
         }
 
@@ -79,12 +79,11 @@ namespace DOL.GS
     {
         public GameLiving Killed { get; private set; }
         public GameObject Killer { get; private set; }
-        public ServiceObjectId ServiceObjectId { get; set; }
+        public ServiceObjectId ServiceObjectId { get; } = new(ServiceObjectType.LivingBeingKilled);
 
         private LivingBeingKilled(GameLiving killed, GameObject killer)
         {
             Initialize(killed, killer);
-            ServiceObjectId = new ServiceObjectId(ServiceObjectType.LivingBeingKilled);
         }
 
         public static void Create(GameLiving killed, GameObject killer)

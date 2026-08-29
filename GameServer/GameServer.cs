@@ -28,7 +28,8 @@ using DOL.Language;
 using DOL.Logging;
 using DOL.Mail;
 using DOL.Network;
-using JNogueira.Discord.Webhook.Client;
+using DOL.Timing;
+using JNogueira.Discord.WebhookClient;
 
 namespace DOL.GS
 {
@@ -105,6 +106,7 @@ namespace DOL.GS
 		/// World save timer
 		/// </summary>
 		protected Timer m_timer;
+		private readonly Lock _saveTimerLock = new();
 
 		/// <summary>
 		/// A general logger for the server
@@ -304,7 +306,7 @@ namespace DOL.GS
 				// -----------------------------------------------------------
 				// Init Metrics
 				if (!InitComponent(InitMetrics(), "Setup Metric Server"))
-					log.Error("Can't setup Metric Server");
+					return false;
 
 				//---------------------------------------------------------------
 				//Try to compile the Scripts
@@ -314,6 +316,11 @@ namespace DOL.GS
 				//---------------------------------------------------------------
 				//Try to init Server Properties
 				if (!InitComponent(Properties.InitProperties, "Server Properties Lookup"))
+					return false;
+
+				// -----------------------------------------------------------
+				// Init Discord Client Manager
+				if (!InitComponent(InitDiscordClientManager(), "Setup Discord Client Manager"))
 					return false;
 
 				//---------------------------------------------------------------
@@ -370,8 +377,8 @@ namespace DOL.GS
 					return false;
 
 				//---------------------------------------------------------------
-				//Try to initialize the Pathing Manager
-				if (!InitComponent(PathingMgr.Init(), "Pathing Manager Initialization"))
+				//Try to initialize the Pathfinding Manager
+				if (!InitComponent(PathfindingProvider.Init(), "Pathfinding Manager Initialization"))
 					return false;
 
 				//---------------------------------------------------------------
@@ -523,11 +530,8 @@ namespace DOL.GS
 				m_status = EGameServerStatus.GSS_Open;
 				StartupTime = DateTime.Now;
 
-				if (Properties.DISCORD_ACTIVE && (!string.IsNullOrEmpty(Properties.DISCORD_WEBHOOK_ID)))
+				if (DiscordClientManager.TryGetClient(WebhookType.Default, out var discordClient))
 				{
-
-					var client = new DiscordWebhookClient(Properties.DISCORD_WEBHOOK_ID);
-
  					var message = new DiscordMessage(
  						"",
  						username: "Game Server",
@@ -536,14 +540,14 @@ namespace DOL.GS
  						embeds: new[]
  						{
  							new DiscordMessageEmbed(
-	                            color: 3066993,
-	                            description: "Server open for connections!",
-                                thumbnail: new DiscordMessageEmbedThumbnail("")
-                            )
+								color: 3066993,
+								description: "Server open for connections!",
+								thumbnail: new DiscordMessageEmbedThumbnail("")
+							)
  						}
  					);
 
-					client.SendToDiscord(message);
+					discordClient.SendToDiscordAsync(message);
 				}
 
 				if (Properties.ATLAS_API)
@@ -570,27 +574,44 @@ namespace DOL.GS
 			}
 		}
 
-        /// <summary>
-        /// Setup Metrics, this includes running a dedicated Kestrel Server for prometheus endpoints
-        /// and also starting the MetricsCollector
-        /// </summary>
-        /// <returns></returns>
-        private bool InitMetrics()
-        {
-            try
-            {
-                if (!Instance.Configuration.MetricsEnabled)
-                    return true;
+		/// <summary>
+		/// Setup Metrics, this includes running a dedicated Kestrel Server for prometheus endpoints
+		/// and also starting the MetricsCollector
+		/// </summary>
+		private static bool InitMetrics()
+		{
+			try
+			{
+				if (!Instance.Configuration.MetricsEnabled)
+					return true;
 
-                MeterRegistry.RegisterMeterProviders();
-                return true;
-            }
-            catch (Exception e)
-            {
-                log.Error(e);
-                return false;
-            }
-        }
+				MeterRegistry.RegisterMeterProviders();
+				return true;
+			}
+			catch (Exception e)
+			{
+				if (log.IsErrorEnabled)
+					log.Error(e);
+
+				return false;
+			}
+		}
+
+		private static bool InitDiscordClientManager()
+		{
+			try
+			{
+				DiscordClientManager.Initialize();
+				return true;
+			}
+			catch (Exception e)
+			{
+				if (log.IsErrorEnabled)
+					log.Error(e);
+
+				return false;
+			}
+		}
 
 		public async void GetPatchNotes()
 		{
@@ -991,7 +1012,7 @@ namespace DOL.GS
 			GameLoop.Exit();
 			GameEventMgr.Notify(ScriptEvent.Unloaded);
 			GameEventMgr.Notify(GameServerEvent.Stopped, this);
-			GameEventMgr.RemoveAllHandlers(true);
+			GameEventMgr.RemoveAllHandlers();
 			WorldMgr.Exit();
 			Scheduler?.Shutdown();
 			Scheduler = null;
@@ -1222,69 +1243,70 @@ namespace DOL.GS
 		/// <param name="sender">Object that generated the event</param>
 		protected void SaveTimerProc(object sender)
 		{
-			ThreadPriority oldPriority = Thread.CurrentThread.Priority;
-
-			try
+			lock (_saveTimerLock)
 			{
-				long startTick = GameLoop.GetRealTime();
+				ThreadPriority oldPriority = Thread.CurrentThread.Priority;
 
-				if (log.IsInfoEnabled)
-					log.Info("Saving database...");
-
-				(int count, long elapsed) players = (0, 0);
-				(int count, long elapsed) keepDoors = (0, 0);
-				(int count, long elapsed) guilds = (0, 0);
-				(int count, long elapsed) boats = (0, 0);
-				(int count, long elapsed) factions = (0, 0);
-				(int count, long elapsed) crafting = (0, 0);
-				(int count, long elapsed) appeals = (0, 0);
-
-				if (m_database != null)
+				try
 				{
-					Thread.CurrentThread.Priority = ThreadPriority.Lowest;
-					Save(ClientService.Instance.SavePlayers, ref players);
-					Save(DoorMgr.SaveKeepDoors, ref keepDoors);
-					Save(GuildMgr.SaveAllGuilds, ref guilds);
-					Save(BoatMgr.SaveAllBoats, ref boats);
-					Save(FactionMgr.SaveAllAggroToFaction, ref factions);
-					Save(CraftingProgressMgr.Save, ref crafting);
-					Save(AppealMgr.Save, ref appeals);
-				}
-
-				startTick = GameLoop.GetRealTime() - startTick;
-
-				if (log.IsInfoEnabled)
-				{
-					StringBuilder stringBuilder = new();
-					stringBuilder.Append($"Saving completed in {startTick}ms\n");
-					stringBuilder.Append($"   {nameof(players)}: {players.count} in {players.elapsed}ms\n");
-					stringBuilder.Append($" {nameof(keepDoors)}: {keepDoors.count} in {keepDoors.elapsed}ms\n");
-					stringBuilder.Append($"    {nameof(guilds)}: {guilds.count} in {guilds.elapsed}ms\n");
-					stringBuilder.Append($"     {nameof(boats)}: {boats.count} in {boats.elapsed}ms\n");
-					stringBuilder.Append($"  {nameof(factions)}: {factions.count} in {factions.elapsed}ms\n");
-					stringBuilder.Append($"  {nameof(crafting)}: {crafting.count} in {crafting.elapsed}ms\n");
-					stringBuilder.Append($"   {nameof(appeals)}: {appeals.count} in {appeals.elapsed}ms");
+					long startTick = MonotonicTime.NowMs;
 
 					if (log.IsInfoEnabled)
+						log.Info("Saving database...");
+
+					(int count, long elapsed) players = (0, 0);
+					(int count, long elapsed) keepDoors = (0, 0);
+					(int count, long elapsed) guilds = (0, 0);
+					(int count, long elapsed) boats = (0, 0);
+					(int count, long elapsed) factions = (0, 0);
+					(int count, long elapsed) crafting = (0, 0);
+					(int count, long elapsed) appeals = (0, 0);
+
+					if (m_database != null)
+					{
+						Thread.CurrentThread.Priority = ThreadPriority.Lowest;
+						Save(ClientService.Instance.SavePlayers, ref players);
+						Save(DoorMgr.SaveKeepDoors, ref keepDoors);
+						Save(GuildMgr.SaveAllGuilds, ref guilds);
+						Save(BoatMgr.SaveAllBoats, ref boats);
+						Save(FactionMgr.SaveAllAggroToFaction, ref factions);
+						Save(CraftingProgressMgr.Save, ref crafting);
+						Save(AppealMgr.Save, ref appeals);
+					}
+
+					startTick = MonotonicTime.NowMs - startTick;
+
+					if (log.IsInfoEnabled)
+					{
+						StringBuilder stringBuilder = new();
+						stringBuilder.Append($"Saving completed in {startTick}ms\n");
+						stringBuilder.Append($"   {nameof(players)}: {players.count} in {players.elapsed}ms\n");
+						stringBuilder.Append($" {nameof(keepDoors)}: {keepDoors.count} in {keepDoors.elapsed}ms\n");
+						stringBuilder.Append($"    {nameof(guilds)}: {guilds.count} in {guilds.elapsed}ms\n");
+						stringBuilder.Append($"     {nameof(boats)}: {boats.count} in {boats.elapsed}ms\n");
+						stringBuilder.Append($"  {nameof(factions)}: {factions.count} in {factions.elapsed}ms\n");
+						stringBuilder.Append($"  {nameof(crafting)}: {crafting.count} in {crafting.elapsed}ms\n");
+						stringBuilder.Append($"   {nameof(appeals)}: {appeals.count} in {appeals.elapsed}ms");
 						log.Info(stringBuilder.ToString());
+					}
 				}
-			}
-			catch (Exception e)
-			{
-				if (log.IsErrorEnabled)
-					log.Error("SaveTimerProc", e);
-			}
-			finally
-			{
-				m_timer?.Change(SaveInterval * MINUTE_CONV, Timeout.Infinite);
-				Thread.CurrentThread.Priority = oldPriority;
+				catch (Exception e)
+				{
+					if (log.IsErrorEnabled)
+						log.Error("SaveTimerProc", e);
+				}
+				finally
+				{
+					Thread.CurrentThread.Priority = oldPriority;
+					m_timer?.Change(SaveInterval * MINUTE_CONV, Timeout.Infinite);
+				}
 			}
 
 			static void Save(Func<int> save, ref (int count, long elapsed) result)
 			{
-				result.elapsed = GameLoop.GetRealTime();
+				result.elapsed = MonotonicTime.NowMs;
 				result.count = save();
-				result.elapsed = GameLoop.GetRealTime() - result.elapsed;
+				result.elapsed = MonotonicTime.NowMs - result.elapsed;
 			}
 		}
 

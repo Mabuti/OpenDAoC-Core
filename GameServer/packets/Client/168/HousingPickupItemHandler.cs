@@ -7,17 +7,15 @@ namespace DOL.GS.PacketHandler.Client.v168
 	/// Handle housing pickup item requests from the client.
 	/// </summary>
 	[PacketHandlerAttribute(PacketHandlerType.TCP, eClientPackets.PlayerPickupHouseItem, "Handle Housing Pick Up Request.", eClientStatus.PlayerInGame)]
-	public class HousingPickupItemHandler : IPacketHandler
+	public class HousingPickupItemHandler : PacketHandler
 	{
-		private static readonly Logging.Logger log = Logging.LoggerManager.Create(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
-
 		/// <summary>
 		/// Handle the packet
 		/// </summary>
 		/// <param name="client"></param>
 		/// <param name="packet"></param>
 		/// <returns></returns>
-		public void HandlePacket(GameClient client, GSPacketIn packet)
+		protected override void HandlePacketInternal(GameClient client, GSPacketIn packet)
 		{
 			int unknown = packet.ReadByte();
 			int position = packet.ReadByte();
@@ -52,7 +50,7 @@ namespace DOL.GS.PacketHandler.Client.v168
 						var invitem = GameInventoryItem.Create((house.OutdoorItems[i]).BaseItem);
 						if (client.Player.Inventory.AddItem(eInventorySlot.FirstEmptyBackpack, invitem))
 							InventoryLogging.LogInventoryAction("(HOUSE;" + house.HouseNumber + ")", client.Player, eInventoryActionType.Other, invitem.Template, invitem.Count);
-						house.OutdoorItems.Remove(i);
+						house.RemoveOutdoorItem(i);
 
 						// update garden
 						client.Out.SendGarden(house);
@@ -155,7 +153,7 @@ namespace DOL.GS.PacketHandler.Client.v168
 					}
 
 					GameServer.Database.DeleteObject((house.IndoorItems[(position)]).DatabaseItem);
-					house.IndoorItems.Remove(position);
+					house.RemoveIndoorItem(position);
 
 					using (var pak = PooledObjectFactory.GetForTick<GSTCPPacketOut>().Init(AbstractPacketLib.GetPacketCode(eServerPackets.HousingItem)))
 					{

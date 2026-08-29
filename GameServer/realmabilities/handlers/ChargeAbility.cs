@@ -50,13 +50,6 @@ namespace DOL.GS.RealmAbilities
 				return;
 			}
 
-			//if (living.TempProperties.GetProperty<bool>("Charging")
-			//	|| living.EffectList.CountOfType(typeof(SpeedOfSoundEffect), typeof(ArmsLengthEffect), typeof(ChargeEffect)) > 0)
-			//{
-			//	if (living is GamePlayer)
-			//		((GamePlayer)living).Out.SendMessage("You already an effect of that type!", eChatType.CT_SpellResisted, eChatLoc.CL_SystemWindow);
-			//	return;
-			//}
 			ChargeECSGameEffect charge = (ChargeECSGameEffect)EffectListService.GetEffectOnTarget(living, eEffect.Charge);
 			//ChargeEffect charge = living.EffectList.GetOfType<ChargeEffect>();
 			if (charge != null)
@@ -64,7 +57,7 @@ namespace DOL.GS.RealmAbilities
 			//if (living is GamePlayer)
 			//	((GamePlayer)living).Out.SendUpdateMaxSpeed();
 
-			ECSGameEffectFactory.Create(new(living, DURATION, 1, null), static (in ECSGameEffectInitParams i) => new ChargeECSGameEffect(i));
+			ECSGameEffectFactory.Create(new(living, DURATION, 1, null), static (in i) => new ChargeECSGameEffect(i));
 			DisableSkill(living);
 		}
 

@@ -148,8 +148,7 @@ namespace DOL.GS.Spells
             ProcPetBrain petBrain = (ProcPetBrain)m_pet.Brain;
             m_pet.Level = Caster.Level;
             m_pet.Strength = 0;
-            petBrain.AddToAggroList(target, 1);
-            petBrain.Think();
+            petBrain.AddToAggroList(target);
         }
 
         protected override GameSummonedPet GetGamePet(INpcTemplate template) { return new SummonElementalPet(template); }
@@ -180,7 +179,7 @@ namespace DOL.GS.Spells
             dbs.Icon = 4107;
             dbs.ClientEffect = 5435;
             dbs.DamageType = 15;
-            dbs.Target = "Enemy";
+            dbs.Target = eSpellTarget.ENEMY.ToString();
             dbs.Radius = 0;
             dbs.Type = eSpellType.DirectDamage.ToString();
             dbs.Damage = 80;

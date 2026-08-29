@@ -80,7 +80,7 @@ namespace DOL.GS.Spells
                                 if (target.IsAlive && !GameServer.ServerRules.IsAllowedToAttack(Caster, player, true))
                                 {
                                     heal = target.ChangeHealth(target, eHealthChangeType.Spell, healvalue);
-                                    if (heal != 0) player.Out.SendMessage(m_caster.Name + " heal you for " + heal + " hit point!", eChatType.CT_YouWereHit, eChatLoc.CL_SystemWindow);
+                                    if (heal != 0) player.Out.SendMessage(m_caster.Name + " heal you for " + heal + " hit point!", eChatType.CT_System, eChatLoc.CL_SystemWindow);
                                 }
                             heal = m_caster.ChangeHealth(Caster, eHealthChangeType.Spell, (int)(-m_caster.Health * 90 / 100));
                             if (heal != 0) MessageToCaster("You lose " + heal + " hit point" + (heal == 1 ? "." : "s."), eChatType.CT_Spell);
@@ -183,7 +183,6 @@ namespace DOL.GS.Spells
             {
                 player.Effectiveness += Spell.Value * 0.01;
                 player.Out.SendUpdateWeaponAndArmorStats();
-                player.Out.SendStatusUpdate();
             }
         }
 
@@ -201,7 +200,6 @@ namespace DOL.GS.Spells
             {
                 player.Effectiveness -= Spell.Value * 0.01;
                 player.Out.SendUpdateWeaponAndArmorStats();
-                player.Out.SendStatusUpdate();
             }
             return 0;
         }
@@ -215,7 +213,7 @@ namespace DOL.GS.Spells
     [SpellHandler(eSpellType.MLABSBuff)]
     public class MLABSBuff : MasterlevelBuffHandling
     {
-        public override eProperty Property1 { get { return eProperty.ArmorAbsorption; } }
+        public override eProperty Property1 { get { return eProperty.PhysicalAbsorption; } }
 
         public MLABSBuff(GameLiving caster, Spell spell, SpellLine line) : base(caster, spell, line) { }
     }

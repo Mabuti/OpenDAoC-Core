@@ -154,6 +154,7 @@ namespace DOL.GS.PacketHandler
         PlayerDismountRequest = 0xC8,        // 0x60 ^ 168
         PlayerHeadingUpdate = 0xBA,          // 0x12 ^ 168  also known as Short State
         PlayerPickupHouseItem = 0x0D,        // 0xA5 ^ 168
+        ClientFilterSettings = 0xDC,         // 0x74 ^ 168
         PlayerMoveItem = 0xDD,               // 0x75 ^ 168
         DetailRequest = 0xD8,                // 0x70 ^ 168
         BuyHookPoint = 0x64,                 // 0xCC ^ 168
@@ -195,7 +196,7 @@ namespace DOL.GS.PacketHandler
         PositionUpdate = 0xA9,               // 0x01 ^ 168
         SellRequest = 0x79,                  // 0xD1 ^ 168
         SetMarketPrice = 0x1A,               // 0xB2 ^ 168
-        TrainHandlerOld = 0x7C,              // 0xD4 ^ 168
+        ChampionTrainHandler = 0x7C,         // 0xD4 ^ 168
         TrainHandler = 0x53,                 // 0xFB ^ 168
         TrainWindowHandler = 0x7B,           // 0xD3 ^ 168
         WithDrawMerchantMoney = 0x1C,        // 0xB4 ^ 168
@@ -251,6 +252,8 @@ namespace DOL.GS.PacketHandler
     /// </summary>
     public enum eChatLoc : byte
     {
+        // Note: Modern clients (1.127) seems to determine the actual window to print to based on the eChatType, not the eChatLoc.
+        // Meaning this is mostly just a legacy value. NPCs send text as CT_Say or CT_System based on this.
         CL_ChatWindow = 0x0,
         CL_PopupWindow = 0x1,
         CL_SystemWindow = 0x2
@@ -261,7 +264,7 @@ namespace DOL.GS.PacketHandler
     /// </summary>
     public enum eChatType : byte
     {
-        CT_System = 0x00,
+        // Chat channels.
         CT_Say = 0x01,
         CT_Send = 0x02,
         CT_Group = 0x03,
@@ -275,37 +278,47 @@ namespace DOL.GS.PacketHandler
         CT_Alliance = 0x0b,
         CT_BattleGroup = 0x0c,
         CT_BattleGroupLeader = 0x0d,
-        // 0x0e sends nothing (tested with client v1.99)
-        CT_Staff = 0xf,
+        CT_Staff = 0xf, // Can't be disabled by the client.
+        CT_LookingForGroup = 0x23,
+        CT_Trade = 0x24,
 
+        // Message types.
         CT_Spell = 0x10,
         CT_YouHit = 0x11,
-        CT_YouWereHit = 0x12,
-        CT_Skill = 0x13,
+        CT_System = 0x12,
+        CT_Items = 0x13,
         CT_Merchant = 0x14,
-        CT_YouDied = 0x15,
-        CT_PlayerDied = 0x16,
+        CT_YourDeath = 0x15,
+        CT_OthersDeath = 0x16,
         CT_OthersCombat = 0x17,
-        CT_DamageAdd = 0x18,
+        CT_ResistsChanged = 0x18,
         CT_SpellExpires = 0x19,
         CT_Loot = 0x1a,
         CT_SpellResisted = 0x1b,
         CT_Important = 0x1c,
         CT_Damaged = 0x1d,
-        CT_Missed = 0x1e,
+        CT_Action = 0x1e,
         CT_SpellPulse = 0x1f,
+
         CT_KilledByAlb = 0x20,
         CT_KilledByMid = 0x21,
         CT_KilledByHib = 0x22,
-        CT_LFG = 0x23,
-        CT_Trade = 0x24,
 
         CT_SocialInterface = 0x64,
         CT_ScreenCenter = 0xC8,
         CT_ScreenCenterSmaller = 0xC9,
         CT_ScreenCenter_And_CT_System = 0xCA,
-        CT_ScreenCenterSmaller_And_CT_System = 0xCB,
-    } ;
+        CT_ScreenCenterSmaller_And_CT_System = 0xCB
+    };
+
+    public enum eEffectFilter : byte
+    {
+        All = 0x00,
+        Self = 0x01,
+        None = 0x02,
+        Group = 0x03,
+        Others = 0x04
+    }
 
     public enum eEmote : byte
     {
@@ -626,6 +639,7 @@ namespace DOL.GS.PacketHandler
         void SendUDPInitReply();
         void SendTime();
         void SendMessage(string msg, eChatType type, eChatLoc loc);
+        void SendRawMessage(string msg, eChatType type, eChatLoc loc);
         void SendPlayerCreate(GamePlayer playerToCreate);
         void SendObjectGuildID(GameObject obj, Guild guild);
         void SendPlayerQuit(bool totalOut);
@@ -662,7 +676,7 @@ namespace DOL.GS.PacketHandler
                            bool autoWrapText, string message);
 
         void SendCustomDialog(string msg, CustomDialogResponse callback);
-        bool SendCheckLos(GameObject source, GameObject target, CheckLosResponse callback);
+        bool SendLosCheckRequest(GameObject source, GameObject target, ILosCheckListener listener);
         void SendGuildLeaveCommand(GamePlayer invitingPlayer, string inviteMessage);
         void SendGuildInviteCommand(GamePlayer invitingPlayer, string inviteMessage);
         void SendQuestOfferWindow(GameNPC questNPC, GamePlayer player, RewardQuest quest);
@@ -672,11 +686,12 @@ namespace DOL.GS.PacketHandler
         void SendQuestSubscribeCommand(GameNPC invitingNPC, ushort questid, string inviteMessage);
         void SendQuestAbortCommand(GameNPC abortingNPC, ushort questid, string abortMessage);
         void SendGroupWindowUpdate();
-        void SendGroupMemberUpdate(bool updateIcons, bool updateMap, GameLiving living);
-        void SendGroupMembersUpdate(bool updateIcons, bool updateMap);
-        void SendInventoryItemsUpdate(ICollection<DbInventoryItem> itemsToUpdate);
-        void SendInventorySlotsUpdate(ICollection<eInventorySlot> slots);
-        void SendInventoryItemsUpdate(eInventoryWindowType windowType, ICollection<DbInventoryItem> itemsToUpdate);
+        void SendGroupMembersUpdate(ReadOnlySpan<GameLiving> livings);
+        void SendGroupMembersIconsUpdate(ReadOnlySpan<GameLiving> livings);
+        void SendGroupMembersMapUpdate(ReadOnlySpan<GameLiving> livings);
+        void SendInventoryItemsUpdate(List<DbInventoryItem> itemsToUpdate);
+        void SendInventorySlotsUpdate(List<eInventorySlot> slots);
+        void SendInventoryItemsUpdate(eInventoryWindowType windowType, List<DbInventoryItem> itemsToUpdate);
         void SendInventoryItemsUpdate(IDictionary<int, DbInventoryItem> updateItems, eInventoryWindowType windowType);
         void SendDoorState(Region region, GameDoorBase door);
         void SendMerchantWindow(MerchantTradeItems itemlist, eMerchantWindowType windowType);
@@ -686,6 +701,7 @@ namespace DOL.GS.PacketHandler
         void SendPlayerRevive(GamePlayer revivedPlayer);
         void SendUpdatePlayer();
         void SendUpdatePlayerSkills(bool updateInternalCache);
+        void SendNonHybridSpellLines(bool updateInternalCache);
         void SendUpdateWeaponAndArmorStats();
         void SendCustomTextWindow(string caption, IList<string> text);
         void SendPlayerTitles();
@@ -699,8 +715,9 @@ namespace DOL.GS.PacketHandler
         void SendChampionTrainerWindow(int type);
         void SendTrainerWindow();
         void SendInterruptAnimation(GameLiving living);
-        void SendDisableSkill(ICollection<Tuple<Skill, int>> skills);
-        void SendUpdateIcons(IList changedEffects, ref int lastUpdateEffectsCount);
+        void SendDisableSkill(List<(Skill, int)> skills);
+        [Obsolete("changedEffects is unused in v1.110+. Previous versions don't handle ECSGameEffect.")] void SendUpdateIcons(IList changedEffects, ref int lastUpdateEffectsCount);
+        void SendUpdateIcons(ref int lastUpdateEffectsCount, bool forced = false);
         void SendLevelUpSound();
         void SendRegionEnterSound(byte soundId);
         void SendDebugMessage(string format, params object[] parameters);
@@ -717,7 +734,7 @@ namespace DOL.GS.PacketHandler
         void SendConcentrationList();
         void SendUpdateCraftingSkills();
         void SendChangeTarget(GameObject newTarget);
-        void SendChangeGroundTarget(Point3D newTarget);
+        void SendChangeGroundTarget(int x, int y, int z);
         void SendPetWindow(GameLiving pet, ePetWindowAction windowAction, eAggressionState aggroState, eWalkState walkState);
         void SendPlaySound(eSoundType soundType, ushort soundID);
         void SendNPCsQuestEffect(GameNPC npc, eQuestIndicator indicator);
@@ -760,7 +777,7 @@ namespace DOL.GS.PacketHandler
         void SendHousePayRentDialog(string title);
         void SendToggleHousePoints(House house);
         void SendRentReminder(House house);
-        void SendMarketExplorerWindow(IList<DbInventoryItem> items, byte page, byte maxpage);
+        void SendMarketExplorerWindow(List<DbInventoryItem> items, byte page, byte maxpage);
         void SendMarketExplorerWindow();
         void SendConsignmentMerchantMoney(long money);
         void SendHouseUsersPermissions(House house);
@@ -771,7 +788,6 @@ namespace DOL.GS.PacketHandler
         void SendMovingObjectCreate(GameMovingObject obj);
         void SendSetControlledHorse(GamePlayer player);
         void SendControlledHorse(GamePlayer player, bool flag);
-        void SendNonHybridSpellLines();
         void SendCrash(string str);
         void SendRegionColorScheme();
         void SendRegionColorScheme(byte color);
