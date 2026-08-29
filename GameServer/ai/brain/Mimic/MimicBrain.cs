@@ -460,9 +460,9 @@ namespace DOL.GS.Mimic
 
         private GameLiving? GetHighestAggroTarget()
         {
-            foreach (StandardMobBrain.OrderedAggroListElement entry in GetOrderedAggroList())
+            foreach (GameLiving living in GetOrderedAggroList())
             {
-                GameLiving? target = ValidateTarget(entry.Living);
+                GameLiving? target = ValidateTarget(living);
 
                 if (target != null)
                     return target;
@@ -628,7 +628,7 @@ namespace DOL.GS.Mimic
 
                 if (camp.HasFilter)
                 {
-                    ConColor color = ConLevels.GetConColor(_mimic.GetConLevel(npc));
+                    ConColor color = CharacterConLevelGrid.GetConColor(_mimic.GetConLevel(npc));
 
                     if (color < camp.MinimumCon)
                         continue;

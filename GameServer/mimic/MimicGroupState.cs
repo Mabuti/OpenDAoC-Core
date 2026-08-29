@@ -9,7 +9,7 @@ namespace DOL.GS.Mimic
 
         public GamePlayer Owner { get; }
         public MimicCampSettings? Camp { get; private set; }
-        public ConColor CampFilter { get; private set; } = ConColor.UNKNOWN;
+        public ConColor CampFilter { get; private set; } = ConColor.Unknown;
         public int CampAggroRange { get; private set; }
 
         public IReadOnlyList<MimicNPC> Members => _members;

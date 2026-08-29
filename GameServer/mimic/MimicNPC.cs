@@ -149,7 +149,7 @@ namespace DOL.GS.Mimic
             _lastManaPercent = manaPercent;
             _lastEndurancePercent = endurancePercent;
 
-            group.UpdateMember(this, updateIcons: false, updateOtherRegions: false);
+            group.UpdateMember(this, updateOtherRegions: false);
         }
     }
 }

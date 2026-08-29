@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Linq;
 using DOL.GS;
 using DOL.GS.PacketHandler;
-using DOL.GS.Utils;
 
 namespace DOL.GS.Mimic
 {
@@ -293,18 +292,18 @@ namespace DOL.GS.Mimic
         {
             color = text.ToLowerInvariant() switch
             {
-                "grey" => ConColor.GREY,
-                "gray" => ConColor.GREY,
-                "green" => ConColor.GREEN,
-                "blue" => ConColor.BLUE,
-                "yellow" => ConColor.YELLOW,
-                "orange" => ConColor.ORANGE,
-                "red" => ConColor.RED,
-                "purple" => ConColor.PURPLE,
-                _ => ConColor.UNKNOWN
+                "grey" => ConColor.Grey,
+                "gray" => ConColor.Grey,
+                "green" => ConColor.Green,
+                "blue" => ConColor.Blue,
+                "yellow" => ConColor.Yellow,
+                "orange" => ConColor.Orange,
+                "red" => ConColor.Red,
+                "purple" => ConColor.Purple,
+                _ => ConColor.Unknown
             };
 
-            return color != ConColor.UNKNOWN;
+            return color != ConColor.Unknown;
         }
 
         public static void SetBattleState(string regionKey, bool active)

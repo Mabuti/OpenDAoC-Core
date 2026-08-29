@@ -675,7 +675,7 @@ namespace DOL.GS.Mimic.Controllers
             if (found)
                 return;
 
-            other?.Stop();
+            other?.End();
             GuardAbilityHandler.CancelOurEffectThenAddOnTarget(_mimic, target);
         }
 
@@ -686,7 +686,7 @@ namespace DOL.GS.Mimic.Controllers
             if (found)
                 return;
 
-            other?.Stop();
+            other?.End();
             ProtectAbilityHandler.CancelOurEffectThenAddOnTarget(_mimic, target);
         }
 
@@ -697,7 +697,7 @@ namespace DOL.GS.Mimic.Controllers
             if (found)
                 return;
 
-            other?.Stop();
+            other?.End();
             InterceptAbilityHandler.CancelOurEffectThenAddOnTarget(_mimic, target);
             Ability? ability = _mimic.GetAbility(Abilities.Intercept);
             if (ability != null)
@@ -757,14 +757,12 @@ namespace DOL.GS.Mimic.Controllers
 
         private void UpdateEnemyAwareness()
         {
-            foreach (StandardMobBrain.OrderedAggroListElement entry in _brain.GetOrderedAggroList())
+            foreach ((GameLiving enemy, long aggroAmount) in _brain.GetAggroListDebug())
             {
-                GameLiving enemy = entry.Living;
-
                 if (enemy == null || !enemy.IsAlive)
                     continue;
 
-                _bb.ThreatTable[enemy] = entry.AggroAmount;
+                _bb.ThreatTable[enemy] = aggroAmount;
 
                 if (_bb.CurrentBoss == null)
                     _bb.CurrentBoss = enemy;

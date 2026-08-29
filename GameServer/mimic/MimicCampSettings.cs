@@ -7,7 +7,7 @@ namespace DOL.GS.Mimic
         public Point3D Location { get; }
         public int AggroRange { get; }
         public ConColor MinimumCon { get; }
-        public bool HasFilter => MinimumCon != ConColor.UNKNOWN;
+        public bool HasFilter => MinimumCon != ConColor.Unknown;
 
         public MimicCampSettings(Point3D location, int aggroRange, ConColor minimumCon)
         {
