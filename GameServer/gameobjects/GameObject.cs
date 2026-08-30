@@ -189,7 +189,12 @@ namespace DOL.GS
 		/// </summary>
 		public virtual List<IArea> CurrentAreas
 		{
-			get => CurrentZone.GetAreasOfSpot(this);
+			// CurrentZone is `CurrentRegion?.GetZone(X, Y)` and is legitimately null whenever the
+			// region is not loaded or the coordinates fall outside every zone, so dereferencing it
+			// here threw for every caller. An object in no zone is in no areas; return an empty
+			// list. GameLoop.GetListForTick matches what Region.GetAreasOfSpot returns on the
+			// normal path, so this stays pooled rather than allocating.
+			get => CurrentZone?.GetAreasOfSpot(this) ?? GameLoop.GetListForTick<IArea>();
 			set { }
 		}
 
