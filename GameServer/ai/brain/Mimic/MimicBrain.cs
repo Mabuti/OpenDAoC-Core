@@ -12,6 +12,10 @@ namespace DOL.GS.Mimic
 {
     public class MimicBrain : FollowOwnerBrain
     {
+        // Pre-merge this was `public const int MAX_AGGRO_LIST_DISTANCE` on StandardMobBrain.
+        // Upstream demoted it to a private local inside ThreatStrategy.ShouldBeIgnored, so the
+        // value is mirrored here rather than referenced.
+        private const int MAX_AGGRO_LIST_DISTANCE = 6000;
         private const int OWNER_THREAT_DURATION = 8000;
         private const int CAMP_SCAN_INTERVAL = 2000;
 
@@ -425,7 +429,10 @@ namespace DOL.GS.Mimic
             if (member.attackComponent?.AttackState == true)
                 return true;
 
-            if (member.InCombat)
+            // Upstream redefined InCombat as `InCombatInLast(...) || IsCrowdControlled`, so a
+            // mezzed or stunned member now reports combat with no recent fighting. This method
+            // asks whether a member is ENGAGED, so use the pre-merge meaning explicitly.
+            if (member.InCombatInLast(GameLiving.IN_COMBAT_DURATION))
                 return true;
 
             ISpellHandler? spell = member.CurrentSpellHandler;
@@ -462,6 +469,13 @@ namespace DOL.GS.Mimic
         {
             foreach (GameLiving living in GetOrderedAggroList())
             {
+                // Pre-merge, out-of-range entities were REMOVED from the aggro table, so this
+                // loop could never see them. Upstream now keeps them ("in case they come back")
+                // and skips them only inside its own target selection; neither
+                // GetOrderedAggroList nor GetAggroListDebug applies that skip. Filter here.
+                if (!_mimic.IsWithinRadius(living, MAX_AGGRO_LIST_DISTANCE))
+                    continue;
+
                 GameLiving? target = ValidateTarget(living);
 
                 if (target != null)

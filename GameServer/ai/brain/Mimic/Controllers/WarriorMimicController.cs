@@ -755,11 +755,22 @@ namespace DOL.GS.Mimic.Controllers
                 _bb.SafeHealerLOS = guard.IsWithinRadius(_mimic, 600);
         }
 
+        // Mirrors StandardMobBrain.ThreatStrategy.ShouldBeIgnored; pre-merge this was
+        // public const MAX_AGGRO_LIST_DISTANCE on StandardMobBrain.
+        private const int MAX_AGGRO_LIST_DISTANCE = 6000;
+
         private void UpdateEnemyAwareness()
         {
             foreach ((GameLiving enemy, long aggroAmount) in _brain.GetAggroListDebug())
             {
-                if (enemy == null || !enemy.IsAlive)
+                // Pre-merge the aggro table had out-of-range and inactive entities removed
+                // outright, so they never reached this planner. Upstream keeps them and only
+                // skips them during its own target selection, which GetAggroListDebug does not
+                // do -- without this filter a mob dragged far away can still seed CurrentBoss.
+                if (enemy == null || !enemy.IsAlive || enemy.ObjectState != GameObject.eObjectState.Active)
+                    continue;
+
+                if (!_mimic.IsWithinRadius(enemy, MAX_AGGRO_LIST_DISTANCE))
                     continue;
 
                 _bb.ThreatTable[enemy] = aggroAmount;
