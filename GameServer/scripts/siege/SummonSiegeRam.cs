@@ -11,7 +11,7 @@ namespace DOL.GS.Spells
 
         public override bool StartSpell(GameLiving target)
         {
-            if (!Caster.CurrentZone.IsOF || Caster.CurrentRegion.IsDungeon)
+            if (Caster.CurrentZone?.IsOF != true || Caster.CurrentRegion.IsDungeon)
             {
                 MessageToCaster("You cannot use siege weapons here!", eChatType.CT_SpellResisted);
                 return false;
@@ -20,7 +20,7 @@ namespace DOL.GS.Spells
             if (Caster is not GamePlayer player)
                 return false;
 
-            if (!player.CurrentZone.IsOF || player.CurrentRegion.IsDungeon)
+            if (player.CurrentZone?.IsOF != true || player.CurrentRegion.IsDungeon)
             {
                 MessageToCaster("You cannot use siege weapons here!", eChatType.CT_SpellResisted);
                 return false;
